@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../state/dashboard_provider.dart';
 import '../../widgets/common.dart';
@@ -19,6 +20,25 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
     _ssidCtrl.dispose();
     _passCtrl.dispose();
     super.dispose();
+  }
+
+  /// [FIX] Truoc day moi nut trong tab nay (Quet WiFi, Ket Noi, Ngat Ket
+  /// Noi, AP_ON/OFF, Doc Lai ESP_INFO) goi thang prov.publish() - khong
+  /// kiem tra ket noi, khong co phan hoi truc quan nao (khong SnackBar, khong
+  /// rung) - bam ma mat ket noi thi hoan toan im lang, tuong app dung/lag.
+  /// Dung chung 1 ham nhu van_settings_tab.dart de bao ve VA phan hoi dong
+  /// nhat cho tat ca cac nut trong tab nay.
+  void _publish(BuildContext context, String cmd, [String? confirmMsg]) {
+    final prov = context.read<DashboardProvider>();
+    if (prov.isConnectionStale) {
+      HapticFeedback.heavyImpact();
+      showSnack(context, 'Mất kết nối với van — đang thử kết nối lại, vui lòng chờ rồi thử lại.', isError: true);
+      prov.refreshAll();
+      return;
+    }
+    HapticFeedback.lightImpact();
+    prov.publish(cmd);
+    if (confirmMsg != null) showSnack(context, confirmMsg);
   }
 
   String _uptimeStr(int? sec) {
@@ -99,7 +119,7 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
                 ),
                 const SizedBox(width: 10),
                 OutlinedButton.icon(
-                  onPressed: () => prov.publish('WIFI_SCAN'),
+                  onPressed: () => _publish(context, 'WIFI_SCAN', 'Đang quét WiFi...'),
                   icon: const Icon(Icons.search_rounded, size: 18),
                   label: const Text('Quét'),
                 ),
@@ -154,8 +174,7 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
                       final ssid = _ssidCtrl.text.trim();
                       if (ssid.isEmpty) return showSnack(context, 'Vui lòng nhập tên WiFi!', isError: true);
                       if (ssid.contains('|')) return showSnack(context, 'Tên WiFi không được chứa ký tự "|"!', isError: true);
-                      prov.publish('WIFI_CONNECT:$ssid|${_passCtrl.text}');
-                      showSnack(context, 'Đã gửi lệnh kết nối WiFi "$ssid".');
+                      _publish(context, 'WIFI_CONNECT:$ssid|${_passCtrl.text}', 'Đã gửi lệnh kết nối WiFi "$ssid".');
                     },
                     label: const Text('Kết Nối & Lưu'),
                   ),
@@ -167,7 +186,7 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
                     icon: const Icon(Icons.link_off_rounded, size: 18),
                     onPressed: () async {
                       final ok = await confirmDialog(context, title: 'Ngắt kết nối?', message: 'Ngắt kết nối và xoá cấu hình WiFi nhà đã lưu trên ESP32?');
-                      if (ok) prov.publish('WIFI_DISCONNECT');
+                      if (ok && context.mounted) _publish(context, 'WIFI_DISCONNECT', 'Đã gửi lệnh ngắt kết nối WiFi.');
                     },
                     label: const Text('Ngắt Kết Nối'),
                   ),
@@ -185,9 +204,9 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
               if (!enable) {
                 final ok = await confirmDialog(context,
                     title: 'Tắt AP?', message: 'ESP32 sẽ TỰ CHỐI nếu WiFi nhà chưa kết nối ổn định (để tránh khoá thiết bị). Tiếp tục?');
-                if (!ok) return;
+                if (!ok || !context.mounted) return;
               }
-              prov.publish(enable ? 'AP_ON' : 'AP_OFF');
+              _publish(context, enable ? 'AP_ON' : 'AP_OFF', enable ? 'Đã gửi lệnh bật AP.' : 'Đã gửi lệnh tắt AP.');
             },
           ),
           children: [
@@ -210,7 +229,7 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
           trailing: IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Đọc lại',
-            onPressed: () => prov.publish('ESP_INFO?'),
+            onPressed: () => _publish(context, 'ESP_INFO?', 'Đang tải lại thông tin phần cứng...'),
           ),
           children: [
             statGrid([

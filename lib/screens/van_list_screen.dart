@@ -202,17 +202,30 @@ class _VanListScreenState extends State<VanListScreen> {
                     itemCount: vanList.vans.length,
                     itemBuilder: (ctx, i) {
                       final v = vanList.vans[i];
+                      final status = vanList.onlineStatus[v.mqttPrefix];
                       return Card(
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          leading: Container(
-                            width: 46,
-                            height: 46,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primaryContainer,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.water_drop, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                          leading: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: 46,
+                                height: 46,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primaryContainer,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(Icons.water_drop, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                              ),
+                              // [FIX] Icon bao online/offline goc duoi-phai avatar - tu dong
+                              // kiem tra ngay khi vao man hinh nay (xem VanListProvider.load()).
+                              Positioned(
+                                right: -2,
+                                bottom: -2,
+                                child: _OnlineDot(status: status),
+                              ),
+                            ],
                           ),
                           title: Text(v.displayName, style: const TextStyle(fontWeight: FontWeight.w700)),
                           subtitle: Text('Mã: ${v.code} • Prefix: ${v.mqttPrefix}${v.model != null ? ' • ${v.modelLabel}' : ''}'),
@@ -232,6 +245,39 @@ class _VanListScreenState extends State<VanListScreen> {
         onPressed: _openAddMenu,
         icon: const Icon(Icons.add),
         label: const Text('Thêm Van'),
+      ),
+    );
+  }
+}
+
+/// Cham tron nho bao trang thai online/offline tren avatar cua van, dat goc
+/// duoi-phai (kieu "presence dot" quen thuoc). Xam = dang kiem tra/chua ro.
+class _OnlineDot extends StatelessWidget {
+  final VanOnlineStatus? status;
+  const _OnlineDot({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    switch (status) {
+      case VanOnlineStatus.online:
+        color = Colors.green;
+        break;
+      case VanOnlineStatus.offline:
+        color = Colors.red;
+        break;
+      case VanOnlineStatus.checking:
+      case null:
+        color = Colors.grey;
+        break;
+    }
+    return Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Theme.of(context).colorScheme.surface, width: 2),
       ),
     );
   }

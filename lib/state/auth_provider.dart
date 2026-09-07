@@ -37,6 +37,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [username] chap nhan CA ten dang nhap LAN so dien thoai (backend tu
+  /// doi chieu ca 2 cot - xem app.py:login()).
   Future<bool> login(String username, String password) async {
     busy = true;
     error = null;
@@ -61,12 +63,12 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> register(String username, String password, String? email) async {
+  Future<bool> register(String username, String password, String fullName, String phone, String? email) async {
     busy = true;
     error = null;
     notifyListeners();
     try {
-      await api.register(username, password, email);
+      await api.register(username, password, fullName, phone, email);
       return await login(username, password);
     } on ApiException catch (e) {
       error = e.message;

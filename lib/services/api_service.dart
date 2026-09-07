@@ -51,8 +51,14 @@ class ApiService {
     return (token: data['access_token'] as String, user: data['user'] as Map<String, dynamic>);
   }
 
-  Future<void> register(String username, String password, String? email) async {
-    await _postJson('/auth/register', {'username': username, 'password': password, 'email': email});
+  Future<void> register(String username, String password, String fullName, String phone, String? email) async {
+    await _postJson('/auth/register', {
+      'username': username,
+      'password': password,
+      'full_name': fullName,
+      'phone': phone,
+      'email': email,
+    });
   }
 
   Future<Map<String, dynamic>> me() async {

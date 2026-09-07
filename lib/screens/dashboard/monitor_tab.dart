@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants.dart';
@@ -5,9 +7,39 @@ import '../../state/dashboard_provider.dart';
 import '../../widgets/common.dart';
 import '../../widgets/flow_chart.dart';
 import '../../widgets/position_gauge.dart';
+import '../../widgets/water_tank.dart';
+import 'control_tab.dart';
 
-class MonitorTab extends StatelessWidget {
+class MonitorTab extends StatefulWidget {
   const MonitorTab({super.key});
+
+  @override
+  State<MonitorTab> createState() => _MonitorTabState();
+}
+
+/// [FIX] Truoc day la StatelessWidget - dong chu "Cập nhật lúc..." (freshness
+/// text) chi tinh lai moi khi TelemetryState.notifyListeners() (tin moi ve),
+/// nen khi mat ket noi THAT SU (khong con tin nao ve nua), dong chu nay
+/// DUNG YEN MAI o gia tri cu (vd "vừa xong") thay vi tang dan "... phút
+/// trước" - khien nguoi dung khong nhan ra du lieu dang cu di. Chuyen sang
+/// StatefulWidget + Timer.periodic de tu lam moi hien thi (khong can du lieu
+/// moi) - dong bo voi isConnectionStale o dashboard_provider.dart.
+class _MonitorTabState extends State<MonitorTab> {
+  Timer? _tickTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _tickTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tickTimer?.cancel();
+    super.dispose();
+  }
 
   String _dateStr(String? d) {
     if (d == null) return '--';
@@ -21,21 +53,23 @@ class MonitorTab extends StatelessWidget {
   /// Chip nho gon "icon + nhan + gia tri" - dung de hien thi nhanh cac
   /// thong so quan trong (con lai, che do A/B) ngay trong the "Trạng Thái
   /// Van" chinh, khong bat nguoi dung phai keo xuong the rieng ben duoi.
-  Widget _miniStat(BuildContext context, IconData icon, String label, String value) {
+  Widget _miniStat(BuildContext context, IconData icon, String label, String value, {Color? accentColor}) {
     final theme = Theme.of(context);
+    final accent = accentColor ?? theme.colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: accentColor != null ? accent.withValues(alpha: 0.14) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(10),
+        border: accentColor != null ? Border.all(color: accent.withValues(alpha: 0.4)) : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
+          Icon(icon, size: 16, color: accent),
           const SizedBox(width: 6),
           Text('$label: ', style: theme.textTheme.bodySmall),
-          Text(value, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
+          Text(value, style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: accentColor ?? theme.colorScheme.onSurface)),
         ],
       ),
     );
@@ -50,6 +84,17 @@ class MonitorTab extends StatelessWidget {
     return 'Cập nhật lúc $timeStr • ${secAgo ~/ 60} phút trước';
   }
 
+  /// [NEW] "Chua he nhan duoc du lieu nao tu van" - vua mo dashboard, dang
+  /// ket noi/cho phan hoi dau tien. Khac voi isConnectionStale (da TUNG co
+  /// du lieu roi nhung gio nghi ngo da cu/mat) - truong hop nay CHUA CO GI
+  /// ca de hien thi, nen thay vi ve card voi toan "--"/rong, hien man hinh
+  /// cho ro rang. Dung lai khi da that bai han (connState == error) de
+  /// khong bi "ket dinh" mai o trang thai cho neu that su mat ket noi -
+  /// luc do nhuong lai cho banner "Mat Ket Noi" trong ControlTab xu ly.
+  bool _isInitializing(DashboardProvider prov) {
+    return prov.telemetry.lastUpdate == null && prov.connState != MqttConnState.error;
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
@@ -57,13 +102,50 @@ class MonitorTab extends StatelessWidget {
     final mode = t.pos != null ? kWaterModes[t.pos] : null;
     final isFlowValve = isFlowValveModel(t.mcuVan);
     final isMoving = t.monMod == 'RUN';
+    final isInitializing = _isInitializing(prov);
 
     return RefreshIndicator(
-      onRefresh: () async {
-        prov.refreshAll();
-        await Future.delayed(const Duration(milliseconds: 900));
-      },
-      child: ListView(
+      // [FIX] Truoc day khong await ket qua refreshAll() (chi delay co dinh
+      // 900ms) - keo lam moi khi dang mat ket noi se ket thuc "qua nhanh"
+      // truoc khi refreshAll() kip thu ket noi lai (co the mat vai giay),
+      // khien nguoi dung tuong da lam moi xong nhung thuc ra chua ket noi
+      // lai duoc gi ca. Await dung Future de vong xoay hien thi suot qua
+      // trinh thu ket noi lai.
+      onRefresh: () => prov.refreshAll(),
+      child: isInitializing
+          ? ListView(
+              // Van la ListView (khong phai Center don thuan) de nguoi dung
+              // van keo-de-lam-moi duoc ngay ca trong luc dang cho, phong
+              // khi ket noi bi "treo" lau hon binh thuong.
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.65,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Đang tải trạng thái van...',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          prov.activeTransport == ActiveTransport.ble
+                              ? 'Đang kết nối qua Bluetooth cục bộ...'
+                              : 'Đang kết nối MQTT và chờ van phản hồi...',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           Padding(
@@ -128,10 +210,25 @@ class MonitorTab extends StatelessWidget {
                       'A-${(t.monModeA ?? 0).toString().padLeft(2, '0')}'),
                   _miniStat(context, Icons.looks_two_outlined, 'Chế Độ B',
                       'B-${(t.monModeB ?? 0).toString().padLeft(2, '0')}'),
+                  // [NEW] Canh bao het vat lieu (Cxx) - chi hien khi van THAT
+                  // SU da duoc cau hinh tinh nang nay (monCxx > 0), tranh
+                  // hien "0/0" gay nham lan cho cac van chua dung tinh nang.
+                  if ((t.monCxx ?? 0) > 0)
+                    _miniStat(
+                      context,
+                      (t.monCcur ?? 0) == 0 ? Icons.warning_amber_rounded : Icons.inventory_2_outlined,
+                      (t.monCcur ?? 0) == 0 ? 'Hết Vật Liệu' : 'Chu Kỳ Còn Lại',
+                      (t.monCcur ?? 0) == 0 ? 'Cần thay ngay!' : '${t.monCcur}/${t.monCxx}',
+                      accentColor: (t.monCcur ?? 0) == 0 ? Colors.red : null,
+                    ),
                 ],
               ),
             ],
           ),
+          // [FIX] Gop giao dien Dieu Khien vao chung man Giam Sat (bo muc
+          // bottom-nav "Dieu Khien" rieng) - nguoi dung thay trang thai van
+          // VA cac nut dieu khien cung luc, khong phai chuyen tab qua lai.
+          const ControlTab(),
           if (isFlowValve)
             SectionCard(
               title: 'Đo Lưu Lượng Nước (Flowmeter)',
@@ -151,37 +248,10 @@ class MonitorTab extends StatelessWidget {
               ),
               children: [
                 FlowChart(samples: t.flowHistory),
-                const SizedBox(height: 14),
-                statGrid([
-                  StatBox(label: 'Lưu Lượng Cài Đặt', value: '${t.flowSet?.toStringAsFixed(2) ?? '--'} m³'),
-                  StatBox(label: 'Lưu Lượng Còn Lại', value: '${t.flowRem?.toStringAsFixed(2) ?? '--'} m³'),
-                ]),
+                const SizedBox(height: 18),
+                WaterTank(setValue: t.flowSet, remainValue: t.flowRem),
               ],
             ),
-          // [FIX] Gop "Dinh Danh Chip & Ngoai Vi" vao chung the nay, va bo
-          // Che Do A/B + Hen Gio (da hien thi o the "Trang Thai Van" phia
-          // tren roi - de o day nua la trung lap khong can thiet).
-          SectionCard(
-            title: 'Thông Số Vận Hành & Phần Cứng CH32X035',
-            icon: Icons.tune,
-            trailing: FilledButton.tonal(
-              onPressed: () => context.read<DashboardProvider>().publish('PING'),
-              child: const Text('⚡ PING MCU'),
-            ),
-            children: [
-              statGrid([
-                StatBox(label: 'RAM Khả Dụng', value: '${t.heap ?? '--'} B', sub: 'Min Free: ${t.heapMin ?? '--'} B'),
-                StatBox(label: 'Mã Van', value: t.mcuVan != null ? '#${t.mcuVan}' : '--', sub: t.mcuId != null ? 'Chip ID: ${t.mcuId}' : null),
-                StatBox(label: 'Firmware CH32', value: t.mcuFw ?? '--', sub: t.mcuClk != null ? 'Clock: ${t.mcuClk} MHz' : null),
-                StatBox(label: 'Ngoại Vi RTC', value: 'RTC: ${(t.mcuRtc ?? '--').toUpperCase()}'),
-                StatBox(label: 'Ngoại Vi EEPROM', value: 'EEPROM: ${(t.mcuEe ?? '--').toUpperCase()}'),
-              ]),
-              if (t.mcuUid != null) ...[
-                const SizedBox(height: 10),
-                Text('Chip UID: ${t.mcuUid}', style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey)),
-              ],
-            ],
-          ),
         ],
       ),
     );

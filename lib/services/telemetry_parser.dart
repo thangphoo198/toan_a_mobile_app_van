@@ -142,6 +142,8 @@ class TelemetryParser {
     if (d['f_rem'] != null) state.flowRem = (d['f_rem'] as num).toDouble();
     if (d['heap'] != null) state.heap = (d['heap'] as num).toInt();
     if (d['hmin'] != null) state.heapMin = (d['hmin'] as num).toInt();
+    if (d['cxx'] != null) state.monCxx = (d['cxx'] as num).toInt();
+    if (d['ccur'] != null) state.monCcur = (d['ccur'] as num).toInt();
 
     // MON cung mang pos/run/err "tuoi" hon POS= line - dong bo luon truong
     // dung chung o Giam Sat/Dieu Khien de khong lech giua 2 nguon.
@@ -157,6 +159,7 @@ class TelemetryParser {
     if (c['qr'] is List) state.cfgQr = (c['qr'] as List).map((e) => (e as num).toInt()).toList();
     if (c['h10'] != null) state.cfgH10 = (c['h10'] as num).toInt();
     if (c['fxx'] != null) state.cfgFxx = (c['fxx'] as num).toInt();
+    if (c['cxx'] != null) state.cfgCxx = (c['cxx'] as num).toInt();
     if (c['y'] != null) state.cfgYear = (c['y'] as num).toInt();
     if (c['mo'] != null) state.cfgMonth = (c['mo'] as num).toInt();
     if (c['d'] != null) state.cfgDay = (c['d'] as num).toInt();

@@ -18,6 +18,7 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
   final Map<int, TextEditingController> _flowCtrls = {for (var i = 1; i <= 5; i++) i: TextEditingController()};
   final _h10Ctrl = TextEditingController();
   final _fxxCtrl = TextEditingController();
+  final _cxxCtrl = TextEditingController();
   DateTime? _pickedDateTime;
   bool _synced = false;
 
@@ -31,11 +32,19 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     }
     _h10Ctrl.dispose();
     _fxxCtrl.dispose();
+    _cxxCtrl.dispose();
     super.dispose();
   }
 
+  /// [FIX] Truoc day danh dau _synced=true VO DIEU KIEN ngay lan build dau
+  /// tien, ke ca khi ##CFG## (SETTINGS?) CHUA KIP tra ve (thuong mat vai
+  /// tram ms, lau hon qua BLE) - cac o nhap se MAI MAI trong rong vi ham
+  /// nay khong bao gio chay lai lan 2 (early-return o dau), cho toi khi
+  /// nguoi dung tu bam "Tải Lại Giá Trị". Chi danh dau synced khi THAT SU
+  /// da nhan duoc du lieu (cfgWm luon co mat trong moi ban ##CFG## hop le).
   void _syncFromState(dynamic t) {
     if (_synced) return;
+    if (t.cfgWm == null) return; // ##CFG## chua ve - thu lai o lan build sau
     if (t.cfgWm != null) {
       for (var i = 1; i <= 5 && i <= t.cfgWm.length; i++) {
         _timeCtrls[i]!.text = t.cfgWm[i - 1].toString();
@@ -50,6 +59,7 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     }
     if (t.cfgH10 != null) _h10Ctrl.text = t.cfgH10.toString();
     if (t.cfgFxx != null) _fxxCtrl.text = t.cfgFxx.toString();
+    if (t.cfgCxx != null) _cxxCtrl.text = t.cfgCxx.toString();
     _synced = true;
   }
 
@@ -70,9 +80,21 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
 
   /// Gui lenh + phan hoi truc quan (rung nhe + snackbar xac nhan) de nguoi
   /// dung luon biet chac da bam duoc hay chua, khong chi im lang gui lenh.
+  /// [FIX] Dung chung 1 ham cho MOI nut "Luu" trong tab nay (SETH10/SETFXX/
+  /// SETCXX/SETMODEA/SETMODEB/SETPOS/SETFLOW/SETDATETIME/MODEL) - kiem tra
+  /// isConnectionStale TRUOC KHI gui o DAY se tu dong bao ve tat ca, thay
+  /// vi truoc day cu goi thang publish() roi hien "Đã lưu..." du van co the
+  /// da mat ket noi tu truoc, khien nguoi dung tuong da luu thanh cong.
   void _publish(BuildContext context, String cmd, [String? confirmMsg]) {
+    final prov = context.read<DashboardProvider>();
+    if (prov.isConnectionStale) {
+      HapticFeedback.heavyImpact();
+      showSnack(context, 'Mất kết nối với van — đang thử kết nối lại, vui lòng chờ rồi thử lại.', isError: true);
+      prov.refreshAll();
+      return;
+    }
     HapticFeedback.lightImpact();
-    context.read<DashboardProvider>().publish(cmd);
+    prov.publish(cmd);
     if (confirmMsg != null) showSnack(context, confirmMsg);
   }
 
@@ -163,7 +185,7 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
           ],
         ),
         SectionCard(
-          title: 'H10 & Fxx',
+          title: 'H10, Fxx & Cxx',
           icon: Icons.exposure,
           children: [
             Row(children: [
@@ -199,6 +221,28 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                   final v = _asInt(_fxxCtrl);
                   if (v == null || v < 0 || v > 20) return showSnack(context, 'Giá trị phải 0-20.', isError: true);
                   _publish(context, 'SETFXX:$v', 'Đã lưu Fxx = $v.');
+                },
+                child: const Text('Lưu'),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            // [NEW] Cxx: so chu ky giua 2 lan canh bao het vat lieu - dat lai
+            // gia tri (kem ca 0) se RESET so chu ky con lai ve day du, xoa
+            // luon canh bao dang bip (xem SETCXX: trong uart1_rx.c firmware).
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _cxxCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Cxx (0-99 chu kỳ, cảnh báo hết vật liệu)', border: OutlineInputBorder()),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  final v = _asInt(_cxxCtrl);
+                  if (v == null || v < 0 || v > 99) return showSnack(context, 'Giá trị phải 0-99.', isError: true);
+                  _publish(context, 'SETCXX:$v', 'Đã lưu Cxx = $v (đã reset số chu kỳ còn lại).');
                 },
                 child: const Text('Lưu'),
               ),

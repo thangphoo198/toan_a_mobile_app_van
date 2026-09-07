@@ -33,6 +33,28 @@ class _OtaTabState extends State<OtaTab> {
       child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          // [FIX] Chuyen tu tab "Giam Sat" sang day - day la thong tin CHAN
+          // DOAN/THAM KHAO ve chip CH32 (RAM, firmware, ngoai vi), hop ly hon
+          // khi dat canh khu vuc quan ly/nap firmware cho chinh chip nay. Bo
+          // luon nut rieng "PING MCU" - du lieu da duoc lam moi tu dong qua
+          // PING dinh ky luc ket noi va nut "Lam Moi" chung tren AppBar.
+          SectionCard(
+            title: 'Thông Số Vận Hành & Phần Cứng CH32X035',
+            icon: Icons.tune,
+            children: [
+              statGrid([
+                StatBox(label: 'RAM Khả Dụng', value: '${t.heap ?? '--'} B', sub: 'Min Free: ${t.heapMin ?? '--'} B'),
+                StatBox(label: 'Mã Van', value: t.mcuVan != null ? '#${t.mcuVan}' : '--', sub: t.mcuId != null ? 'Chip ID: ${t.mcuId}' : null),
+                StatBox(label: 'Firmware CH32', value: t.mcuFw ?? '--', sub: t.mcuClk != null ? 'Clock: ${t.mcuClk} MHz' : null),
+                StatBox(label: 'Ngoại Vi RTC', value: 'RTC: ${(t.mcuRtc ?? '--').toUpperCase()}'),
+                StatBox(label: 'Ngoại Vi EEPROM', value: 'EEPROM: ${(t.mcuEe ?? '--').toUpperCase()}'),
+              ]),
+              if (t.mcuUid != null) ...[
+                const SizedBox(height: 10),
+                Text('Chip UID: ${t.mcuUid}', style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey)),
+              ],
+            ],
+          ),
           SectionCard(
             title: 'Tải & Nạp Firmware CH32 Từ Xa',
             icon: Icons.cloud_download,

@@ -87,20 +87,23 @@ class _BlePairScreenState extends State<BlePairScreen> {
 
     final connected = await _ble.connectDevice(r.device);
     if (!connected) {
-      setState(() {
-        _error = 'Không kết nối được tới thiết bị. Thử lại?';
-        _step = _Step.scanning;
-      });
+      final msg = 'Không kết nối được tới thiết bị. Thử lại?';
+      // [FIX] Truoc day CHI dat _step = scanning ma KHONG thuc su goi lai
+      // scan (_scanSub da bi huy o dau ham nay) - man hinh hien "Đang quét..."
+      // kem vong xoay nhung KHONG CO SCAN NAO DANG CHAY, danh sach thiet bi
+      // dung yen mai cho toi khi nguoi dung tu keo lam moi. Goi _startScan()
+      // de thuc su quet lai, khong chi doi trang thai hien thi.
+      if (mounted) setState(() => _error = msg);
+      _startScan();
       return;
     }
 
     final authed = await _ble.authenticate();
     if (!authed) {
       await _ble.disconnect();
-      setState(() {
-        _error = 'Xác thực Bluetooth thất bại (sai mã PIN firmware?).';
-        _step = _Step.scanning;
-      });
+      final msg = 'Xác thực Bluetooth thất bại (sai mã PIN firmware?).';
+      if (mounted) setState(() => _error = msg);
+      _startScan();
       return;
     }
 

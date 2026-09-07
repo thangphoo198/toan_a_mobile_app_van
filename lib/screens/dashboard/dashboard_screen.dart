@@ -6,7 +6,6 @@ import '../../models/van.dart';
 import '../../services/prefs_service.dart';
 import '../../state/dashboard_provider.dart';
 import 'account_tab.dart';
-import 'control_tab.dart';
 import 'monitor_tab.dart';
 import 'system_tab.dart';
 import 'van_settings_tab.dart';
@@ -24,9 +23,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   StreamSubscription<String>? _eventsSub;
   int _navIndex = 0;
 
+  // [FIX] Gop "Dieu Khien" vao chung trang "Giam Sat" (xem ControlTab duoc
+  // nhung vao MonitorTab) - con lai 4 muc bottom-nav thay vi 5.
   static const _pages = [
     MonitorTab(),
-    ControlTab(),
     VanSettingsTab(),
     SystemTab(),
     AccountTab(),
@@ -84,7 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final label = onMqtt
                     ? 'ONLINE'
                     : onBle
-                        ? '🔵 BLUETOOTH'
+                        ? 'BLUETOOTH'
                         : (connecting ? 'ĐANG KẾT NỐI' : 'MẤT KẾT NỐI');
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -97,7 +97,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(width: 7, height: 7, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+                        // [FIX] Kenh Bluetooth dung icon Bluetooth chuan (Icons.bluetooth)
+                        // thay vi emoji "🔵" trong chuoi text - cac kenh khac van dung
+                        // dau cham mau nhu cu.
+                        if (onBle)
+                          const Icon(Icons.bluetooth, size: 12, color: Colors.white)
+                        else
+                          Container(width: 7, height: 7, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
                         const SizedBox(width: 6),
                         Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
                       ],
@@ -127,7 +133,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
             NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Giám Sát'),
-            NavigationDestination(icon: Icon(Icons.videogame_asset_outlined), selectedIcon: Icon(Icons.videogame_asset), label: 'Điều Khiển'),
             NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Cài Đặt'),
             NavigationDestination(icon: Icon(Icons.developer_board_outlined), selectedIcon: Icon(Icons.developer_board), label: 'Hệ Thống'),
             NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Tài Khoản'),

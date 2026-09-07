@@ -101,6 +101,23 @@ class DashboardProvider extends ChangeNotifier {
   // gi xay ra, khong ro tai sao.
   bool get isOfflineOnly => activeTransport != ActiveTransport.mqtt;
 
+  // [NEW] "Da mat ket noi tu truoc" ma UI chua biet: activeTransport ==
+  // mqtt CHI co nghia da ket noi toi BROKER, khong dam bao van thuc su con
+  // song (xem comment _mqttProven o tren) - neu MQTT connect() nhung
+  // KHONG BAO GIO nhan duoc phan hoi thuc tu van (vd van mat WiFi, khong
+  // co BLE du phong de rot xuong), activeTransport se bao "mqtt" MAI MAI
+  // (dong fallback cuoi cua getter tren) dù lenh gui di se roi vao khoang
+  // khong. Dung gia tri nay CHAN lenh dieu khien (GOTO/NEXT) truoc khi
+  // gui, thay vi gui roi bao "thanh cong" gia nhu truoc day.
+  bool get isConnectionStale {
+    if (activeTransport == ActiveTransport.ble) return false;
+    if (activeTransport == ActiveTransport.none) return true;
+    if (!_mqttProven) return true;
+    final last = telemetry.lastUpdate;
+    if (last == null) return true;
+    return DateTime.now().difference(last) > const Duration(seconds: 60);
+  }
+
   String get topicCmd => '${van.mqttPrefix}/cmd';
 
   Future<void> loadConfigAndConnect() async {
@@ -308,34 +325,61 @@ class DashboardProvider extends ChangeNotifier {
     Future.delayed(const Duration(milliseconds: 900), () => publish('ESP_INFO?'));
   }
 
-  void publish(String cmd) {
+  /// Tra ve true neu lenh THAT SU duoc gui di qua 1 duong truyen dang hoat
+  /// dong (khong dam bao van se nhan/thuc thi dung - chi dam bao KHONG roi
+  /// vao khoang khong nhu truoc day). Cac man hinh dieu khien (control_tab)
+  /// PHAI kiem tra isConnectionStale TRUOC khi goi ham nay, khong chi dua
+  /// vao gia tri tra ve - vi activeTransport=mqtt van co the "coi nhu gui
+  /// duoc" du van khong thuc su con song (xem isConnectionStale).
+  bool publish(String cmd) {
     if (cmd == 'PING')
       _parser.pingSentAtMs = DateTime.now().millisecondsSinceEpoch;
     switch (activeTransport) {
       case ActiveTransport.mqtt:
         _mqtt.publish(topicCmd, cmd);
         telemetry.addLog('[MQTT TX] [$topicCmd] -> $cmd');
-        break;
+        return true;
       case ActiveTransport.ble:
         _ble!.writeCommand(cmd);
         telemetry.addLog('[BLE TX] -> $cmd');
-        break;
+        return true;
       case ActiveTransport.none:
         telemetry.addLog(
           '[TX] Không có kết nối (MQTT/BLE) - lệnh "$cmd" không được gửi.',
         );
-        break;
+        return false;
     }
   }
 
-  /// Tuong duong manualRefreshMqtt() - nut "Lam Moi" tren AppBar.
-  void refreshAll() {
+  /// Tuong duong manualRefreshMqtt() - nut "Lam Moi" tren AppBar VA keo man
+  /// hinh de lam moi (RefreshIndicator trong monitor_tab.dart).
+  /// [FIX] TRUOC DAY chi publish() lai cac lenh PING/POS?/... - neu dang
+  /// mat ket noi that su (isConnectionStale), publish() se khong lam gi ca
+  /// (hoac gui vao khoang khong neu MQTT "connected" gia), khien nguoi
+  /// dung keo lam moi ma KHONG THAY GI THAY DOI, tuong da on nhung thuc ra
+  /// van dang mat ket noi. Gio: neu dang mat ket noi, CHU DONG ket noi lai
+  /// tu dau (MQTT roi tu dong rot xuong BLE neu can - xem connect()) truoc
+  /// khi thu publish, va cho Future nay hoan tat de RefreshIndicator biet
+  /// khi nao nen tat vong xoay.
+  Future<void> refreshAll() async {
+    if (isConnectionStale) {
+      telemetry.addLog('[REFRESH] Phat hien mat ket noi - dang thu ket noi lai...');
+      if (connState != MqttConnState.connecting) {
+        await connect();
+      }
+      // connect() that bai se tu goi tryBleFallback() ben trong - cho 1 chut
+      // de kip ket noi BLE (neu co) truoc khi danh gia lai isConnectionStale.
+      await Future.delayed(const Duration(seconds: 3));
+      if (isConnectionStale) {
+        telemetry.addLog('[REFRESH] Van chua ket noi lai duoc.');
+        return;
+      }
+    }
     publish('PING');
-    Future.delayed(const Duration(milliseconds: 500), () {
-      publish('POS?');
-      publish('FILES?');
-      publish('SETTINGS?');
-      publish('ESP_INFO?');
-    });
+    await Future.delayed(const Duration(milliseconds: 500));
+    publish('POS?');
+    publish('FILES?');
+    publish('SETTINGS?');
+    publish('ESP_INFO?');
   }
 }

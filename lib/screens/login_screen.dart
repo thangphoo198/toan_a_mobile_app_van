@@ -17,6 +17,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _loginPass = TextEditingController();
 
   final _regUser = TextEditingController();
+  final _regFullName = TextEditingController();
+  final _regPhone = TextEditingController();
   final _regEmail = TextEditingController();
   final _regPass = TextEditingController();
   final _regPass2 = TextEditingController();
@@ -26,6 +28,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _loginUser.dispose();
     _loginPass.dispose();
     _regUser.dispose();
+    _regFullName.dispose();
+    _regPhone.dispose();
     _regEmail.dispose();
     _regPass.dispose();
     _regPass2.dispose();
@@ -36,7 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final username = _loginUser.text.trim();
     final password = _loginPass.text;
     if (username.isEmpty || password.isEmpty) {
-      _showMsg('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.');
+      _showMsg('Vui lòng nhập đầy đủ tên đăng nhập/SĐT và mật khẩu.');
       return;
     }
     final ok = await auth.login(username, password);
@@ -49,6 +53,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _doRegister(AuthProvider auth) async {
     final username = _regUser.text.trim();
+    final fullName = _regFullName.text.trim();
+    final phone = _regPhone.text.trim();
     final email = _regEmail.text.trim();
     final password = _regPass.text;
     final password2 = _regPass2.text;
@@ -61,6 +67,14 @@ class _LoginScreenState extends State<LoginScreen> {
       _showMsg('Tên đăng nhập chỉ được chứa chữ, số, dấu . _ -');
       return;
     }
+    if (fullName.length < 2) {
+      _showMsg('Vui lòng nhập họ và tên.');
+      return;
+    }
+    if (!RegExp(r'^(\+84|0)\d{9,10}$').hasMatch(phone)) {
+      _showMsg('Số điện thoại không hợp lệ (vd: 0912345678).');
+      return;
+    }
     if (password.length < 6) {
       _showMsg('Mật khẩu phải từ 6 ký tự trở lên.');
       return;
@@ -70,7 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    final ok = await auth.register(username, password, email.isEmpty ? null : email);
+    final ok = await auth.register(username, password, fullName, phone, email.isEmpty ? null : email);
     if (ok && mounted) {
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const VanListScreen()));
     } else if (mounted) {
@@ -106,10 +120,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.18), blurRadius: 24, offset: const Offset(0, 10)),
                       ],
                     ),
-                    child: Image.asset('assets/images/logo.png', width: 220, fit: BoxFit.contain),
+                    // Logo moi la wordmark rong (~4.9:1) - tang chieu rong mot chut
+                    // so voi logo cu (~1.5:1) de chu "ATV" van doc ro, khong qua nho.
+                    child: Image.asset('assets/images/logo.png', width: 260, fit: BoxFit.contain),
                   ),
                   const SizedBox(height: 18),
-                  Text('Van Toàn Á', style: theme.textTheme.headlineSmall),
+                  Text('AQUATECHVINA', style: theme.textTheme.headlineSmall),
                   const SizedBox(height: 4),
                   Text('Smart Control Center', style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 32),
@@ -126,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (!_isRegisterPane) ...[
                     TextField(
                       controller: _loginUser,
-                      decoration: const InputDecoration(labelText: 'Tên đăng nhập', prefixIcon: Icon(Icons.person_outline)),
+                      decoration: const InputDecoration(labelText: 'Tên đăng nhập hoặc SĐT', prefixIcon: Icon(Icons.person_outline)),
                     ),
                     const SizedBox(height: 14),
                     TextField(
@@ -147,6 +163,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextField(
                       controller: _regUser,
                       decoration: const InputDecoration(labelText: 'Tên đăng nhập (≥3 ký tự)', prefixIcon: Icon(Icons.person_outline)),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _regFullName,
+                      decoration: const InputDecoration(labelText: 'Họ và tên', prefixIcon: Icon(Icons.badge_outlined)),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _regPhone,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Số điện thoại', prefixIcon: Icon(Icons.phone_outlined)),
                     ),
                     const SizedBox(height: 14),
                     TextField(

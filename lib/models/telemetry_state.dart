@@ -81,6 +81,11 @@ class TelemetryState extends ChangeNotifier {
   double? flowRem; // f_rem
   int? heap;
   int? heapMin;
+  // Cxx: canh bao het vat lieu - monCxx = gia tri cai dat (so chu ky giua 2
+  // lan canh bao), monCcur = so chu ky con lai. monCxx == null hoac == 0
+  // nghia la chua cau hinh/tat tinh nang nay tren van.
+  int? monCxx;
+  int? monCcur;
 
   // Lich su f_speed gan day - dung de ve bieu do bien thien luu luong (xem
   // FlowChart trong widgets/flow_chart.dart). Gioi han so diem de khong phinh
@@ -94,6 +99,7 @@ class TelemetryState extends ChangeNotifier {
   List<int>? cfgQr; // luu luong phai moi vi tri
   int? cfgH10;
   int? cfgFxx;
+  int? cfgCxx; // Cxx: so chu ky giua 2 lan canh bao het vat lieu (0 = tat)
   int? cfgYear; // 2 chu so (25 = 2025)
   int? cfgMonth;
   int? cfgDay;
@@ -167,12 +173,13 @@ class TelemetryState extends ChangeNotifier {
     mcuFw = mcuId = mcuUid = mcuEe = mcuRtc = mcuVan = null;
     mcuClk = null;
     monPos = monRem = monModeA = monModeB = monSchedHour = monSchedMin = heap = heapMin = null;
+    monCxx = monCcur = null;
     monVan = monMod = monTime = monDate = null;
     monScan = monRun = monErr = null;
     flowSpeed = flowSet = flowRem = null;
     flowHistory.clear();
     cfgWm = cfgQl = cfgQr = null;
-    cfgH10 = cfgFxx = cfgYear = cfgMonth = cfgDay = cfgHour = cfgMinute = cfgModeA = cfgModeB = null;
+    cfgH10 = cfgFxx = cfgCxx = cfgYear = cfgMonth = cfgDay = cfgHour = cfgMinute = cfgModeA = cfgModeB = null;
     files = [];
     usedBytes = totalBytes = null;
     wifiApEnabled = wifiStaConnected = null;

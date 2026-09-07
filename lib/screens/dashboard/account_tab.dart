@@ -16,12 +16,16 @@ class AccountTab extends StatelessWidget {
     final prov = context.watch<DashboardProvider>();
     final user = auth.user;
     final username = user?['username']?.toString() ?? '--';
+    final fullName = user?['full_name']?.toString();
+    final phone = user?['phone']?.toString();
     final email = user?['email']?.toString();
-    final initial = username.isNotEmpty ? username[0].toUpperCase() : '?';
-    final connected = prov.connState == MqttConnState.connected;
+    // Tai khoan cu (tao truoc khi co full_name/phone) se co 2 truong nay =
+    // null - fallback ve username de khong hien "null" ngoai giao dien.
+    final displayName = (fullName != null && fullName.isNotEmpty) ? fullName : username;
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
     return ListView(
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
         // --- Banner mau chu dao + avatar (tuong tu cac app mobile chuan) ---
         Container(
@@ -45,33 +49,51 @@ class AccountTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(username, style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onPrimary, fontWeight: FontWeight.bold)),
+              Text(displayName, style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onPrimary, fontWeight: FontWeight.bold)),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('@$username', style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85))),
+              ),
               if (email != null && email.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(email, style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85))),
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(email, style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85), fontSize: 12.5)),
                 ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
 
-        // --- Danh sach dong menu kieu list-tile co icon + chevron ---
-        _MenuRow(
+        // [FIX] Gop cac dong roi (_MenuRow) vao chung SectionCard, dong nhat
+        // voi ngon ngu thiet ke cua toan bo app (Giam Sat/Dieu Khien/Cai Dat
+        // deu dung SectionCard) - truoc day "Van Dang Mo"/"So Dien Thoai" la
+        // 2 hop roi noi thanh 1 hang muc rieng, khong ro nhom, thieu chuyen
+        // nghiep. Bo hoan toan "Ket Noi MQTT" - da co pill trang thai o
+        // AppBar roi, dat lai o day vua trung lap vua chi phan anh 1 trong 2
+        // kenh (MQTT), gay hieu nham khi dang dung BLE du phong.
+        SectionCard(
+          title: 'Thông Tin Cá Nhân',
+          icon: Icons.badge_outlined,
+          children: [
+            _InfoRow(
+              icon: Icons.phone_outlined,
+              label: 'Số điện thoại',
+              value: (phone != null && phone.isNotEmpty) ? phone : 'Chưa cập nhật',
+            ),
+          ],
+        ),
+        SectionCard(
+          title: 'Van Đang Quản Lý',
           icon: Icons.water_drop_outlined,
-          title: 'Van Đang Mở',
-          subtitle: '${prov.van.displayName} • ${prov.van.mqttPrefix}',
-          onTap: () => Navigator.of(context).pop(),
+          trailing: TextButton.icon(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.swap_horiz, size: 18),
+            label: const Text('Đổi Van'),
+          ),
+          children: [
+            _InfoRow(icon: Icons.label_outline, label: 'Tên hiển thị', value: prov.van.displayName),
+            _InfoRow(icon: Icons.settings_ethernet, label: 'MQTT Prefix', value: prov.van.mqttPrefix),
+          ],
         ),
-        _MenuRow(
-          icon: Icons.settings_ethernet,
-          title: 'Kết Nối MQTT',
-          subtitle: '${prov.host}:${prov.port} — ${connected ? "Đang online" : "Mất kết nối"}',
-          subtitleColor: connected ? Colors.green : Colors.orange,
-          onTap: null,
-        ),
-
-        const SizedBox(height: 20),
         SectionCard(
           title: 'Giao Diện',
           icon: Icons.palette_outlined,
@@ -97,7 +119,7 @@ class AccountTab extends StatelessWidget {
           ],
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.red,
@@ -120,37 +142,32 @@ class AccountTab extends StatelessWidget {
             },
           ),
         ),
-        const SizedBox(height: 24),
       ],
     );
   }
 }
 
-class _MenuRow extends StatelessWidget {
+/// Hang thong tin gon trong 1 SectionCard - icon + nhan + gia tri, dung chung
+/// cho cac muc chi de xem (khong bam duoc), thay the _MenuRow roi truoc day.
+class _InfoRow extends StatelessWidget {
   final IconData icon;
-  final String title;
-  final String? subtitle;
-  final Color? subtitleColor;
-  final VoidCallback? onTap;
+  final String label;
+  final String value;
 
-  const _MenuRow({required this.icon, required this.title, this.subtitle, this.subtitleColor, this.onTap});
+  const _InfoRow({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        leading: Icon(icon, color: theme.colorScheme.primary),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: subtitle != null ? Text(subtitle!, style: TextStyle(color: subtitleColor)) : null,
-        trailing: onTap != null ? const Icon(Icons.chevron_right) : null,
-        onTap: onTap,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+          Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+        ],
       ),
     );
   }
