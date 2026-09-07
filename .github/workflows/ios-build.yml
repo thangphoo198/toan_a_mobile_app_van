@@ -67,12 +67,22 @@ jobs:
         env:
           KEY_BASE64: ${{ secrets.IOS_ASC_API_KEY_BASE64 }}
         run: |
+          set -e
+          if [ -z "$KEY_BASE64" ]; then
+            echo "::error::Secret IOS_ASC_API_KEY_BASE64 dang rong hoac chua duoc tao."
+            exit 1
+          fi
           echo -n "$KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          if [ ! -s "$RUNNER_TEMP/AuthKey.p8" ]; then
+            echo "::error::Giai ma xong nhung file AuthKey.p8 rong - kiem tra lai noi dung secret IOS_ASC_API_KEY_BASE64."
+            exit 1
+          fi
+          echo "Da giai ma AuthKey.p8, kich thuoc: $(wc -c < "$RUNNER_TEMP/AuthKey.p8") bytes"
+          DELIM="ASC_KEY_EOF_$(date +%s%N)"
           {
-            echo 'key<<EOF_ASC_KEY'
+            printf '%s<<%s\n' "key" "$DELIM"
             cat "$RUNNER_TEMP/AuthKey.p8"
-            echo ""
-            echo 'EOF_ASC_KEY'
+            printf '\n%s\n' "$DELIM"
           } >> "$GITHUB_OUTPUT"
 
       - name: Find built IPA path
