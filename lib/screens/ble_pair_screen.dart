@@ -37,7 +37,9 @@ class _BlePairScreenState extends State<BlePairScreen> {
 
   // WiFi setup
   bool _wifiScanning = false;
-  String? _selectedSsid;
+  DateTime? _wifiScanRequestedAt;
+  Timer? _wifiScanTimeoutTimer;
+  final _ssidCtrl = TextEditingController(); // co the go tay HOAC duoc dien tu khi cham vao 1 mang trong danh sach quet duoc
   final _wifiPassCtrl = TextEditingController();
   bool _wifiConnecting = false;
   String? _wifiError;
@@ -53,14 +55,29 @@ class _BlePairScreenState extends State<BlePairScreen> {
     super.initState();
     _info = TelemetryState();
     _infoParser = TelemetryParser(_info);
+    // [FIX] BUG GOC gay hien tuong "luc hien luc khong": _info la 1
+    // ChangeNotifier RIENG (khong qua Provider) - man hinh nay TRUOC DAY
+    // KHONG LANG NGHE notifyListeners() cua no o dau ca. Du du lieu WiFi
+    // scan/ESP_INFO co thuc su ve qua BLE va duoc parse dung vao _info, UI
+    // se KHONG TU VE LAI - chi "vo tinh" thay du lieu moi neu co 1 setState()
+    // nao khac xay ra dung luc do (vd bam nut, xoay man hinh). Dang ky lang
+    // nghe o day de MOI lan _info thay doi deu ep rebuild dung luc.
+    _info.addListener(_onInfoChanged);
     _startScan();
+  }
+
+  void _onInfoChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _scanSub?.cancel();
     _bleLinesSub?.cancel();
+    _wifiScanTimeoutTimer?.cancel();
+    _info.removeListener(_onInfoChanged);
     _ble.dispose();
+    _ssidCtrl.dispose();
     _wifiPassCtrl.dispose();
     _codeCtrl.dispose();
     _nameCtrl.dispose();
@@ -121,23 +138,53 @@ class _BlePairScreenState extends State<BlePairScreen> {
   }
 
   Future<void> _scanWifi() async {
+    // [FIX] Truoc day cho CO DINH 2000ms roi tat spinner bat ke da co ket
+    // qua that hay chua - quet WiFi tren ESP32 thuong mat lau hon (thuong
+    // 3-6s+ tuy so kenh/khu vuc), cong them do tre truyen qua BLE (chia
+    // nhieu goi). Gio doi THAT SU toi khi wifiScanUpdatedAt tien MOI hon
+    // thoi diem gui lenh (giong cach da sua o esp_settings_tab.dart), voi
+    // timeout an toan 10s neu khong co phan hoi.
+    _wifiScanTimeoutTimer?.cancel();
     setState(() {
       _wifiScanning = true;
       _wifiError = null;
+      _wifiScanRequestedAt = DateTime.now();
     });
     await _ble.writeCommand('WIFI_SCAN');
-    await Future.delayed(const Duration(milliseconds: 2000));
-    if (!mounted) return;
-    setState(() => _wifiScanning = false);
+    _wifiScanTimeoutTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted) setState(() => _wifiScanning = false);
+    });
+  }
+
+  /// Goi tu build(): neu dang quet VA co ket qua MOI HON thoi diem gui lenh,
+  /// tat spinner. _onInfoChanged() da dam bao build() duoc goi lai dung luc
+  /// _info.wifiScanUpdatedAt thay doi, nen kiem tra truc tiep o day la du,
+  /// khong can addPostFrameCallback rieng.
+  void _checkWifiScanArrived() {
+    if (!_wifiScanning) return;
+    final updatedAt = _info.wifiScanUpdatedAt;
+    if (updatedAt == null || _wifiScanRequestedAt == null) return;
+    if (updatedAt.isAfter(_wifiScanRequestedAt!)) {
+      _wifiScanTimeoutTimer?.cancel();
+      _wifiScanning = false;
+    }
   }
 
   Future<void> _connectWifi() async {
-    if (_selectedSsid == null || _selectedSsid!.isEmpty) return;
+    final ssid = _ssidCtrl.text.trim();
+    if (ssid.isEmpty) {
+      setState(() => _wifiError = 'Vui lòng chọn hoặc nhập tên WiFi.');
+      return;
+    }
+    if (ssid.contains('|')) {
+      setState(() => _wifiError = 'Tên WiFi không được chứa ký tự "|".');
+      return;
+    }
     setState(() {
       _wifiConnecting = true;
       _wifiError = null;
     });
-    await _ble.writeCommand('WIFI_CONNECT:$_selectedSsid|${_wifiPassCtrl.text}');
+    await _ble.writeCommand('WIFI_CONNECT:$ssid|${_wifiPassCtrl.text}');
 
     // Poll WIFI_STATUS? toi da ~15s cho staConnected=true (giong wifi_manager.ino
     // xu ly WIFI_CONNECT: khong dong bo, phai hoi lai de biet ket qua).
@@ -335,6 +382,7 @@ class _BlePairScreenState extends State<BlePairScreen> {
   }
 
   Widget _buildWifiSetup() {
+    _checkWifiScanArrived();
     final networks = _info.wifiScanResults;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -351,18 +399,67 @@ class _BlePairScreenState extends State<BlePairScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        if (networks.isEmpty && !_wifiScanning) const Text('Chưa có kết quả quét. Bấm nút làm mới.'),
-        ...networks.map((n) => Card(
-              child: RadioListTile<String>(
-                value: n.ssid,
-                groupValue: _selectedSsid,
-                onChanged: (v) => setState(() => _selectedSsid = v),
-                title: Text(n.ssid),
-                secondary: Icon(n.secure ? Icons.lock_outline : Icons.lock_open, size: 18),
-                subtitle: Text('${n.rssi} dBm'),
+        // [NEW] Luon hien 3 trang thai ro rang (giong esp_settings_tab.dart):
+        // dang quet / co ket qua / chua quet lan nao - thay vi chi 1 dong
+        // chu tinh khi khong co ket qua, de nguoi dung biet chinh xac dang
+        // cho hay da xong.
+        if (_wifiScanning)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2)),
+                const SizedBox(height: 10),
+                Text('Đang quét mạng WiFi xung quanh van...', style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          )
+        else if (networks.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Text(
+                'Chưa quét được mạng nào. Bấm nút quét lại, hoặc nhập tên WiFi thủ công bên dưới.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                textAlign: TextAlign.center,
               ),
-            )),
+            ),
+          )
+        else
+          ...networks.map((n) {
+            final selected = _ssidCtrl.text == n.ssid;
+            return Card(
+              child: ListTile(
+                selected: selected,
+                selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                leading: Icon(n.secure ? Icons.lock_outline : Icons.lock_open, size: 18),
+                title: Text(n.ssid),
+                subtitle: Text('${n.rssi} dBm'),
+                trailing: selected ? Icon(Icons.check_circle_rounded, color: Theme.of(context).colorScheme.primary) : null,
+                onTap: () => setState(() => _ssidCtrl.text = n.ssid),
+              ),
+            );
+          }),
         const SizedBox(height: 16),
+        // [NEW] Ten WiFi gio la 1 o nhap that su (khong chi hien thi tu danh
+        // sach) - cham vao 1 mang o tren se DIEN VAO day, nhung nguoi dung
+        // van go tay truc tiep duoc (mang an SSID, hoac khi quet khong ra
+        // ket qua) - dung mau giong het "Cài Đặt WiFi" trong esp_settings_tab.dart.
+        TextField(
+          controller: _ssidCtrl,
+          decoration: const InputDecoration(labelText: 'Tên WiFi (SSID)', prefixIcon: Icon(Icons.router_rounded)),
+        ),
+        const SizedBox(height: 12),
         TextField(
           controller: _wifiPassCtrl,
           obscureText: true,
@@ -374,7 +471,7 @@ class _BlePairScreenState extends State<BlePairScreen> {
           const SizedBox(height: 8),
         ],
         FilledButton.icon(
-          onPressed: (_selectedSsid == null || _wifiConnecting) ? null : _connectWifi,
+          onPressed: _wifiConnecting ? null : _connectWifi,
           icon: _wifiConnecting
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Icon(Icons.wifi),

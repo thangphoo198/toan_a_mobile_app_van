@@ -20,7 +20,23 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
   final _fxxCtrl = TextEditingController();
   final _cxxCtrl = TextEditingController();
   DateTime? _pickedDateTime;
-  bool _synced = false;
+  // [FIX] Truoc day dung 1 co "_synced" CHI cho phep dong bo DUNG 1 LAN -
+  // gio doi sang so sanh thoi diem (giong cach da sua wifiScanUpdatedAt o
+  // esp_settings_tab.dart) de co the dong bo lai NHIEU LAN: moi khi co ban
+  // ##CFG## MOI ve (sau khi vao tab, hoac sau khi bam Luu de xac nhan gia
+  // tri THAT SU tren van), khong chi dung 1 lan luc mo dashboard.
+  DateTime? _appliedCfgAt;
+
+  @override
+  void initState() {
+    super.initState();
+    // Xin du lieu cai dat ngay khi tab nay duoc tao (dashboard cung tu xin
+    // luc moi ket noi, nhung goi them o day de chac chan co du lieu moi
+    // nhat neu nguoi dung mo thang toi tab nay).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<DashboardProvider>().publish('SETTINGS?');
+    });
+  }
 
   @override
   void dispose() {
@@ -36,15 +52,15 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     super.dispose();
   }
 
-  /// [FIX] Truoc day danh dau _synced=true VO DIEU KIEN ngay lan build dau
-  /// tien, ke ca khi ##CFG## (SETTINGS?) CHUA KIP tra ve (thuong mat vai
-  /// tram ms, lau hon qua BLE) - cac o nhap se MAI MAI trong rong vi ham
-  /// nay khong bao gio chay lai lan 2 (early-return o dau), cho toi khi
-  /// nguoi dung tu bam "Tải Lại Giá Trị". Chi danh dau synced khi THAT SU
-  /// da nhan duoc du lieu (cfgWm luon co mat trong moi ban ##CFG## hop le).
+  /// [FIX] Dong bo lai MOI KHI co ban ##CFG## MOI (so sanh cfgUpdatedAt),
+  /// khong chi 1 lan duy nhat - de "Lưu" xong hoac vao lai tab co the tu
+  /// dong cap nhat cac o nhap theo gia tri THAT SU tren van, khong can nut
+  /// "Tải Lại Giá Trị" thu cong nua.
   void _syncFromState(dynamic t) {
-    if (_synced) return;
-    if (t.cfgWm == null) return; // ##CFG## chua ve - thu lai o lan build sau
+    final updatedAt = t.cfgUpdatedAt as DateTime?;
+    if (updatedAt == null) return; // ##CFG## chua ve lan nao - thu lai o lan build sau
+    if (_appliedCfgAt != null && !updatedAt.isAfter(_appliedCfgAt!)) return; // da ap dung ban nay roi
+    _appliedCfgAt = updatedAt;
     if (t.cfgWm != null) {
       for (var i = 1; i <= 5 && i <= t.cfgWm.length; i++) {
         _timeCtrls[i]!.text = t.cfgWm[i - 1].toString();
@@ -60,7 +76,6 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     if (t.cfgH10 != null) _h10Ctrl.text = t.cfgH10.toString();
     if (t.cfgFxx != null) _fxxCtrl.text = t.cfgFxx.toString();
     if (t.cfgCxx != null) _cxxCtrl.text = t.cfgCxx.toString();
-    _synced = true;
   }
 
   int? _asInt(TextEditingController c) => int.tryParse(c.text.trim());
@@ -85,6 +100,10 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
   /// isConnectionStale TRUOC KHI gui o DAY se tu dong bao ve tat ca, thay
   /// vi truoc day cu goi thang publish() roi hien "Đã lưu..." du van co the
   /// da mat ket noi tu truoc, khien nguoi dung tuong da luu thanh cong.
+  /// [NEW] Sau khi gui xong (tru chinh ban than SETTINGS?), tu dong xin lai
+  /// ##CFG## sau 1 khoang tre ngan de xac nhan gia tri THAT SU da duoc van
+  /// ap dung/ghi EEPROM - _syncFromState() se tu dong dien lai cac o nhap
+  /// khi ban ##CFG## moi nay ve, thay cho nut "Tải Lại Giá Trị" thu cong.
   void _publish(BuildContext context, String cmd, [String? confirmMsg]) {
     final prov = context.read<DashboardProvider>();
     if (prov.isConnectionStale) {
@@ -96,6 +115,11 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     HapticFeedback.lightImpact();
     prov.publish(cmd);
     if (confirmMsg != null) showSnack(context, confirmMsg);
+    if (cmd != 'SETTINGS?') {
+      Future.delayed(const Duration(milliseconds: 700), () {
+        if (mounted) prov.publish('SETTINGS?');
+      });
+    }
   }
 
   Future<void> _pickDateTime(BuildContext context) async {
@@ -115,6 +139,14 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     _publish(context, 'SETDATETIME:$yy:${d.month}:${d.day}:$wd:${d.hour}:${d.minute}:${d.second}', 'Đã gửi lệnh đồng bộ ngày giờ...');
   }
 
+  /// [NEW] "DD/MM/YY" (##MON## gui 2 chu so nam) -> "DD/MM/20YY" de doc de hon.
+  String _fullDate(String? d) {
+    if (d == null) return '--';
+    final parts = d.split('/');
+    if (parts.length == 3) return '${parts[0]}/${parts[1]}/20${parts[2]}';
+    return d;
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
@@ -122,13 +154,48 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     _syncFromState(t);
     final isFlowValve = isFlowValveModel(t.mcuVan);
 
-    return ListView(
+    // [FIX] Bo nut "Làm Mới" o AppBar (dashboard_screen.dart) - dung
+    // RefreshIndicator (keo-de-lam-moi) o day, dong bo cach lam voi tab
+    // Giam Sat (monitor_tab.dart) thay vi 2 co che khac nhau tren 2 tab.
+    return RefreshIndicator(
+      onRefresh: () => prov.refreshAll(),
+      child: ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
         SectionCard(
           title: 'Đồng Bộ Ngày Giờ Van',
           icon: Icons.schedule,
           children: [
+            // [NEW] Hien ngay gio HIEN TAI cua van (tu ##MON## - cap nhat
+            // dinh ky), de nguoi dung biet van dang chay dung/sai gio truoc
+            // khi quyet dinh co can dong bo lai hay khong.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.access_time_filled_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Giờ hiện tại trên van', style: Theme.of(context).textTheme.bodySmall),
+                        Text(
+                          t.monDate != null && t.monTime != null ? '${_fullDate(t.monDate)}  ${t.monTime}' : 'Chưa có dữ liệu',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(_pickedDateTime != null
@@ -333,19 +400,9 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
             ),
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: OutlinedButton.icon(
-            icon: const Icon(Icons.refresh),
-            label: const Text('Tải Lại Giá Trị Hiện Tại Từ Van (SETTINGS?)'),
-            onPressed: () {
-              setState(() => _synced = false);
-              _publish(context, 'SETTINGS?', 'Đang tải lại giá trị hiện tại...');
-            },
-          ),
-        ),
         const SizedBox(height: 16),
       ],
+      ),
     );
   }
 }

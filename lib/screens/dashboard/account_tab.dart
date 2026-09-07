@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/van.dart';
 import '../../state/auth_provider.dart';
-import '../../state/dashboard_provider.dart';
 import '../../state/theme_provider.dart';
 import '../../widgets/common.dart';
 import '../login_screen.dart';
 
+/// [FIX] Truoc day doc "van dang mo" qua `context.watch<DashboardProvider>()`
+/// vi AccountTab la 1 trong 4 tab BEN TRONG dashboard cua 1 van cu the (luon
+/// co san DashboardProvider trong cay widget). Gio "Quan Ly Van" da la 1 tab
+/// rieng ngang hang (xem MainShell), AccountTab duoc mo nhu 1 MAN HINH PUSH
+/// TU BEN NGOAI IndexedStack - khong con nam trong pham vi Provider do nua -
+/// nen nhan truc tiep [van] (co the null neu nguoi dung chua chon van nao).
 class AccountTab extends StatelessWidget {
-  const AccountTab({super.key});
+  final Van? van;
+  const AccountTab({super.key, this.van});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final auth = context.watch<AuthProvider>();
-    final prov = context.watch<DashboardProvider>();
     final user = auth.user;
     final username = user?['username']?.toString() ?? '--';
     final fullName = user?['full_name']?.toString();
@@ -81,19 +87,18 @@ class AccountTab extends StatelessWidget {
             ),
           ],
         ),
-        SectionCard(
-          title: 'Van Đang Quản Lý',
-          icon: Icons.water_drop_outlined,
-          trailing: TextButton.icon(
-            onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.swap_horiz, size: 18),
-            label: const Text('Đổi Van'),
+        // [FIX] Bo nut "Đổi Van" - "Quản Lý Van" gio la 1 tab rieng luon co
+        // san o thanh dieu huong duoi cung (xem MainShell), khong can 1 loi
+        // tat rieng tu day nua. Card nay chi con hien khi CO van dang chon.
+        if (van != null)
+          SectionCard(
+            title: 'Van Đang Quản Lý',
+            icon: Icons.water_drop_outlined,
+            children: [
+              _InfoRow(icon: Icons.label_outline, label: 'Tên hiển thị', value: van!.displayName),
+              _InfoRow(icon: Icons.settings_ethernet, label: 'MQTT Prefix', value: van!.mqttPrefix),
+            ],
           ),
-          children: [
-            _InfoRow(icon: Icons.label_outline, label: 'Tên hiển thị', value: prov.van.displayName),
-            _InfoRow(icon: Icons.settings_ethernet, label: 'MQTT Prefix', value: prov.van.mqttPrefix),
-          ],
-        ),
         SectionCard(
           title: 'Giao Diện',
           icon: Icons.palette_outlined,

@@ -95,11 +95,16 @@ class TelemetryParser {
   void _applyMcu(dynamic m) {
     state.mcuFw = m['fw']?.toString();
     state.mcuId = m['id']?.toString();
-    state.mcuUid = m['uid']?.toString();
     if (m['clk'] != null) state.mcuClk = (m['clk'] as num).toInt();
     state.mcuEe = m['ee']?.toString();
     state.mcuRtc = m['rtc']?.toString();
     state.mcuVan = m['van']?.toString();
+    // [NEW] So lan reset (luu EEPROM tren CH32), nguyen nhan reset gan
+    // nhat, va uptime (giay) ke tu lan boot nay - xem init_boot_diagnostics()
+    // trong main.c ben firmware.
+    if (m['rst'] != null) state.mcuResetCount = (m['rst'] as num).toInt();
+    state.mcuResetCause = m['rc']?.toString();
+    if (m['upt'] != null) state.mcuUptimeSec = (m['upt'] as num).toInt();
   }
 
   /// [FIX] "mA"/"mB" trong ##MON## (send_monitor_json() bên firmware
@@ -154,6 +159,7 @@ class TelemetryParser {
   }
 
   void _applyCfg(dynamic c) {
+    state.cfgUpdatedAt = DateTime.now();
     if (c['wm'] is List) state.cfgWm = (c['wm'] as List).map((e) => (e as num).toInt()).toList();
     if (c['ql'] is List) state.cfgQl = (c['ql'] as List).map((e) => (e as num).toInt()).toList();
     if (c['qr'] is List) state.cfgQr = (c['qr'] as List).map((e) => (e as num).toInt()).toList();
@@ -195,6 +201,7 @@ class TelemetryParser {
     if (list is List) {
       state.wifiScanResults =
           list.map((e) => WifiNetwork.fromJson(e as Map<String, dynamic>)).toList();
+      state.wifiScanUpdatedAt = DateTime.now();
     }
   }
 

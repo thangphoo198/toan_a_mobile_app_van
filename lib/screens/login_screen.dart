@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../state/auth_provider.dart';
-import 'van_list_screen.dart';
+import 'main_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     final ok = await auth.login(username, password);
     if (ok && mounted) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const VanListScreen()));
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
     } else if (mounted) {
       _showMsg(auth.error ?? 'Đăng nhập thất bại.');
     }
@@ -86,7 +86,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final ok = await auth.register(username, password, fullName, phone, email.isEmpty ? null : email);
     if (ok && mounted) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const VanListScreen()));
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const MainShell()));
     } else if (mounted) {
       _showMsg(auth.error ?? 'Tạo tài khoản thất bại.');
     }

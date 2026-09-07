@@ -56,11 +56,17 @@ class TelemetryState extends ChangeNotifier {
   // --- ##MCU## ---
   String? mcuFw;
   String? mcuId;
-  String? mcuUid;
   int? mcuClk;
   String? mcuEe; // "ok"/khac
   String? mcuRtc; // "ok"/khac
   String? mcuVan; // ma van vd "5023"
+  // [NEW] Chan doan boot CH32: so lan reset (dem tang dan, luu EEPROM tren
+  // CH32 - song sot qua moi lan reset), nguyen nhan reset gan nhat
+  // ("power"/"pin"/"software"/"iwdg"/"wwdg"/"lowpower"), va uptime (giay)
+  // ke tu lan boot nay.
+  int? mcuResetCount;
+  String? mcuResetCause;
+  int? mcuUptimeSec;
 
   // --- ##MON## ---
   int? monPos;
@@ -94,6 +100,11 @@ class TelemetryState extends ChangeNotifier {
   final List<FlowSample> flowHistory = [];
 
   // --- ##CFG## (SETTINGS?) ---
+  // [NEW] Thoi diem NHAN duoc ##CFG## gan nhat - dung de van_settings_tab
+  // biet chinh xac khi nao co 1 ban ##CFG## MOI ve (sau khi bam Luu, hoac
+  // sau khi chu dong xin lai luc vao tab) de dong bo lai cac o nhap, thay
+  // vi chi dong bo 1 LAN DUY NHAT luc mo dashboard nhu truoc day.
+  DateTime? cfgUpdatedAt;
   List<int>? cfgWm; // gio/phut moi vi tri (van hen gio)
   List<int>? cfgQl; // luu luong trai moi vi tri (van flow)
   List<int>? cfgQr; // luu luong phai moi vi tri
@@ -124,6 +135,11 @@ class TelemetryState extends ChangeNotifier {
 
   // --- ##WIFISCAN## ---
   List<WifiNetwork> wifiScanResults = [];
+  // [NEW] Thoi diem NHAN duoc ##WIFISCAN## gan nhat - dung de esp_settings_tab
+  // biet chinh xac 1 lan quet MOI da xong (so sanh voi thoi diem gui lenh
+  // WIFI_SCAN), khac voi chi kiem tra wifiScanResults.isNotEmpty (co the la
+  // ket qua CU con sot lai tu lan quet truoc, chua chac da quet xong lan nay).
+  DateTime? wifiScanUpdatedAt;
 
   // --- ##ESPINFO## ---
   String? espFw;
@@ -170,7 +186,8 @@ class TelemetryState extends ChangeNotifier {
     lastUpdate = null;
     pos = modelNum = null;
     isRunning = isScanDone = isError = null;
-    mcuFw = mcuId = mcuUid = mcuEe = mcuRtc = mcuVan = null;
+    mcuFw = mcuId = mcuEe = mcuRtc = mcuVan = mcuResetCause = null;
+    mcuResetCount = mcuUptimeSec = null;
     mcuClk = null;
     monPos = monRem = monModeA = monModeB = monSchedHour = monSchedMin = heap = heapMin = null;
     monCxx = monCcur = null;
@@ -180,12 +197,14 @@ class TelemetryState extends ChangeNotifier {
     flowHistory.clear();
     cfgWm = cfgQl = cfgQr = null;
     cfgH10 = cfgFxx = cfgCxx = cfgYear = cfgMonth = cfgDay = cfgHour = cfgMinute = cfgModeA = cfgModeB = null;
+    cfgUpdatedAt = null;
     files = [];
     usedBytes = totalBytes = null;
     wifiApEnabled = wifiStaConnected = null;
     wifiApIP = wifiStaSavedSSID = wifiStaSSID = wifiStaIP = null;
     wifiStaRSSI = null;
     wifiScanResults = [];
+    wifiScanUpdatedAt = null;
     espFw = espMqttPrefix = espChip = null;
     espCpuFreq = espFlashSize = espFreeHeap = espMinFreeHeap = espUptime = null;
     otaPercent = null;

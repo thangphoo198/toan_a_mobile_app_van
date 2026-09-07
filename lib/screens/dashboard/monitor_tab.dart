@@ -102,6 +102,14 @@ class _MonitorTabState extends State<MonitorTab> {
     final mode = t.pos != null ? kWaterModes[t.pos] : null;
     final isFlowValve = isFlowValveModel(t.mcuVan);
     final isMoving = t.monMod == 'RUN';
+    // [NEW] Dang quet/phuc hoi vi tri (detect_and_recover() ben CH32, xem
+    // van_set.c) - is_scan_done=false trong SUOT qua trinh nay (ke ca luc
+    // dong co dang quay tim vi tri goc, nen isMoving cung dung THOI DIEM
+    // NAY), vi tri (t.pos) THUC SU VO NGHIA (cus_pos=POS_NOT_FOUND ben CH32)
+    // nen KHONG hien mode/vi tri binh thuong - thay bang 1 trang thai rieng,
+    // ro rang hon "ĐANG CHẠY" chung chung, cho toi khi co vi tri MOI (scan
+    // xong, isScanDone chuyen ve true).
+    final isScanning = t.isScanDone == false;
     final isInitializing = _isInitializing(prov);
 
     return RefreshIndicator(
@@ -162,7 +170,11 @@ class _MonitorTabState extends State<MonitorTab> {
             title: 'Trạng Thái Van',
             icon: Icons.water_drop,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (t.monMod != null)
+              // [FIX] Uu tien pill "ĐANG QUÉT" - cu the va dung ban chat hon
+              // "ĐANG CHẠY" chung chung trong luc nay (xem chu thich isScanning).
+              if (isScanning)
+                const StatusPill(text: '🔍 ĐANG QUÉT', color: Colors.blueAccent)
+              else if (t.monMod != null)
                 StatusPill(
                   // t.monMod=='RUN' phan anh dung "dong co dang thuc su quay"
                   // (setupMode ben CH32) - KHONG dung t.isRunning (RUN=), bien
@@ -182,15 +194,42 @@ class _MonitorTabState extends State<MonitorTab> {
             children: [
               Row(
                 children: [
-                  PositionGauge(position: t.pos, isMoving: isMoving, size: 126),
+                  // [FIX] Vi tri VO NGHIA trong luc dang quet (cus_pos=POS_NOT_FOUND
+                  // ben CH32) - truyen null de PositionGauge hien "--" thay vi 1
+                  // con so cu/sai con sot lai tu truoc do.
+                  PositionGauge(position: isScanning ? null : t.pos, isMoving: isMoving, size: 126),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(mode != null ? '${mode.icon} ${mode.name}' : 'Vị trí ${t.pos ?? '--'}',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                        Text(mode?.sub ?? '', style: const TextStyle(color: Colors.grey)),
+                        if (isScanning) ...[
+                          Row(
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Đang quét và phục hồi chế độ...',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.blueAccent.shade700),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Van đang dò tìm vị trí gốc, vui lòng đợi vài giây.',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ] else ...[
+                          Text(mode != null ? '${mode.icon} ${mode.name}' : 'Vị trí ${t.pos ?? '--'}',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                          Text(mode?.sub ?? '', style: const TextStyle(color: Colors.grey)),
+                        ],
                         const SizedBox(height: 4),
                         Text('${_dateStr(t.monDate)} ${t.monTime ?? ''}', style: const TextStyle(fontSize: 13, color: Colors.grey)),
                       ],

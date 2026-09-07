@@ -23,7 +23,15 @@ class ControlTab extends StatelessWidget {
     return false;
   }
 
-  void _sendGoto(BuildContext context, int pos, bool isRunning) {
+  void _sendGoto(BuildContext context, int pos, bool isRunning, bool isScanning) {
+    // [NEW] Firmware TU CHOI GOTO trong luc dang quet ("ERR: chua quet" - xem
+    // uart1_goto_run() trong uart1_rx.c) vi vi tri hien tai CHUA XAC DINH -
+    // chan tu phia app truoc, khoi gui lenh chac chan bi tu choi.
+    if (isScanning) {
+      HapticFeedback.heavyImpact();
+      showSnack(context, 'Van đang quét và phục hồi chế độ — vui lòng đợi xong rồi thử lại.', isError: true);
+      return;
+    }
     if (isRunning) {
       HapticFeedback.heavyImpact();
       showSnack(context, 'Van đang chạy — đợi xong mới chuyển được vị trí khác.', isError: true);
@@ -37,7 +45,12 @@ class ControlTab extends StatelessWidget {
     showSnack(context, 'Đã gửi lệnh chuyển sang "${mode.name}" (vị trí $pos)...');
   }
 
-  void _sendNext(BuildContext context, bool isRunning) {
+  void _sendNext(BuildContext context, bool isRunning, bool isScanning) {
+    if (isScanning) {
+      HapticFeedback.heavyImpact();
+      showSnack(context, 'Van đang quét và phục hồi chế độ — vui lòng đợi xong rồi thử lại.', isError: true);
+      return;
+    }
     if (isRunning) {
       HapticFeedback.heavyImpact();
       showSnack(context, 'Van đang chạy — đợi xong mới chuyển được vị trí khác.', isError: true);
@@ -61,9 +74,14 @@ class ControlTab extends StatelessWidget {
     // dang quay" (xem chu thich trong uart1_rx.c). Dung t.monMod=='RUN' (tu
     // setupMode ben CH32) - CHI true trong luc dong co thuc su dang chay.
     final isRunning = t.monMod == 'RUN';
-    // [NEW] Mat ket noi la canh bao QUAN TRONG HON "dang chay" - neu ca 2
-    // cung dung (hiem, vi mat ket noi thi lam sao biet dang chay) chi hien
-    // 1 banner mat ket noi, vi day la nguyen nhan goc khien bam nut vo nghia.
+    // [NEW] Dang quet/phuc hoi vi tri (detect_and_recover() ben CH32) - vi
+    // tri CHUA XAC DINH, firmware TU CHOI moi lenh GOTO/NEXT luc nay ("ERR:
+    // chua quet" - xem uart1_rx.c) nen phai khoa CA 2 nut tu phia app, tranh
+    // gui lenh chac chan bi tu choi.
+    final isScanning = t.isScanDone == false;
+    // [NEW] Mat ket noi la canh bao QUAN TRONG HON "dang chay"/"dang quet" -
+    // neu nhieu dieu kien cung dung, chi hien 1 banner theo do uu tien, vi
+    // day la nguyen nhan goc khien bam nut vo nghia.
     final isStale = prov.isConnectionStale;
 
     // [FIX] Truoc day la ListView rieng (trang dieu huong bottom-nav doc lap)
@@ -89,6 +107,32 @@ class ControlTab extends StatelessWidget {
                   child: Text(
                     'Mất kết nối với van — kéo màn hình xuống để làm mới trước khi điều khiển.',
                     style: TextStyle(color: Colors.red.shade800, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (isScanning)
+          Container(
+            margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Van đang quét và phục hồi chế độ — nút điều khiển tạm khoá cho tới khi có vị trí mới.',
+                    style: TextStyle(color: Colors.blueAccent.shade700, fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -135,7 +179,7 @@ class ControlTab extends StatelessWidget {
               childAspectRatio: 1.3,
               children: kWaterModes.entries.map((e) {
                 final selected = currentPos == e.key;
-                final locked = isStale || (isRunning && !selected);
+                final locked = isStale || isScanning || (isRunning && !selected);
                 return Opacity(
                   opacity: locked ? 0.45 : 1.0,
                   child: Material(
@@ -145,7 +189,7 @@ class ControlTab extends StatelessWidget {
                     shadowColor: e.value.color.withValues(alpha: 0.4),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
-                      onTap: () => _sendGoto(context, e.key, isRunning),
+                      onTap: () => _sendGoto(context, e.key, isRunning, isScanning),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -204,11 +248,15 @@ class ControlTab extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             FilledButton.icon(
-              onPressed: () => _sendNext(context, isRunning),
-              icon: Icon(isStale ? Icons.wifi_off_rounded : Icons.skip_next_rounded),
+              onPressed: () => _sendNext(context, isRunning, isScanning),
+              icon: Icon(isStale
+                  ? Icons.wifi_off_rounded
+                  : (isScanning ? Icons.travel_explore_rounded : Icons.skip_next_rounded)),
               label: Text(isStale
                   ? 'Mất Kết Nối — Kéo Xuống Để Làm Mới'
-                  : (isRunning ? 'Van Đang Chạy — Đợi Xong' : 'Bước Tới Vị Trí Kế Tiếp (NEXT)')),
+                  : (isScanning
+                      ? 'Đang Quét — Vui Lòng Đợi'
+                      : (isRunning ? 'Van Đang Chạy — Đợi Xong' : 'Bước Tới Vị Trí Kế Tiếp (NEXT)'))),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),

@@ -22,6 +22,31 @@ class _OtaTabState extends State<OtaTab> {
     super.dispose();
   }
 
+  String _uptimeStr(int? sec) {
+    if (sec == null) return '--';
+    final d = sec ~/ 86400, h = (sec % 86400) ~/ 3600, m = (sec % 3600) ~/ 60;
+    if (d > 0) return '${d}ng ${h}h ${m}m';
+    return '${h}h ${m}m';
+  }
+
+  String _resetCauseLabel(String? cause) {
+    switch (cause) {
+      case 'power':
+        return 'Mất/cấp lại nguồn';
+      case 'pin':
+        return 'Nút Reset/chân RST';
+      case 'software':
+        return 'Lệnh RESET từ app';
+      case 'iwdg':
+      case 'wwdg':
+        return 'Watchdog (treo chương trình)';
+      case 'lowpower':
+        return 'Chế độ tiết kiệm điện';
+      default:
+        return 'Không rõ';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
@@ -48,11 +73,16 @@ class _OtaTabState extends State<OtaTab> {
                 StatBox(label: 'Firmware CH32', value: t.mcuFw ?? '--', sub: t.mcuClk != null ? 'Clock: ${t.mcuClk} MHz' : null),
                 StatBox(label: 'Ngoại Vi RTC', value: 'RTC: ${(t.mcuRtc ?? '--').toUpperCase()}'),
                 StatBox(label: 'Ngoại Vi EEPROM', value: 'EEPROM: ${(t.mcuEe ?? '--').toUpperCase()}'),
+                // [NEW] Theo doi so lan reset/uptime CH32 - giup phat hien
+                // van bi treo/mat nguon lien tuc (so lan reset tang bat
+                // thuong) hoac chay on dinh (uptime dai, khong reset).
+                StatBox(
+                  label: 'Số Lần Reset',
+                  value: t.mcuResetCount != null ? '${t.mcuResetCount}' : '--',
+                  sub: 'Gần nhất: ${_resetCauseLabel(t.mcuResetCause)}',
+                ),
+                StatBox(label: 'Thời Gian Hoạt Động', value: _uptimeStr(t.mcuUptimeSec), sub: 'Kể từ lần khởi động gần nhất'),
               ]),
-              if (t.mcuUid != null) ...[
-                const SizedBox(height: 10),
-                Text('Chip UID: ${t.mcuUid}', style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey)),
-              ],
             ],
           ),
           SectionCard(

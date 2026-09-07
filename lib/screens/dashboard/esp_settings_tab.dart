@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../models/telemetry_state.dart';
 import '../../state/dashboard_provider.dart';
 import '../../widgets/common.dart';
 
@@ -15,11 +18,56 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
   final _ssidCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
+  // [NEW] Trang thai "dang quet WiFi" - hien spinner/progress bar TOI KHI
+  // THAT SU co ket qua quet moi ve (khong phai chi bam la tat spinner ngay,
+  // cung khong dua vao wifiScanResults.isNotEmpty don thuan vi co the la
+  // ket qua CU con sot tu lan quet truoc). Xem _onWifiScanArrived().
+  bool _scanning = false;
+  DateTime? _scanRequestedAt;
+  Timer? _scanTimeoutTimer;
+
   @override
   void dispose() {
     _ssidCtrl.dispose();
     _passCtrl.dispose();
+    _scanTimeoutTimer?.cancel();
     super.dispose();
+  }
+
+  void _startWifiScan(BuildContext context, DashboardProvider prov) {
+    if (prov.isConnectionStale) {
+      HapticFeedback.heavyImpact();
+      showSnack(context, 'Mất kết nối với van — đang thử kết nối lại, vui lòng chờ rồi thử lại.', isError: true);
+      prov.refreshAll();
+      return;
+    }
+    HapticFeedback.lightImpact();
+    setState(() {
+      _scanning = true;
+      _scanRequestedAt = DateTime.now();
+    });
+    prov.publish('WIFI_SCAN');
+    _scanTimeoutTimer?.cancel();
+    // An toan: neu qua 10s van khong thay ket qua moi ve (mat ket noi giua
+    // chung, ESP32 khong phan hoi...), tu tat spinner thay vi treo mai mai.
+    _scanTimeoutTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted) setState(() => _scanning = false);
+    });
+  }
+
+  /// Goi ngay dau build(): neu dang quet VA da co ket qua quet MOI HON thoi
+  /// diem gui lenh (khong phai ket qua cu con sot), tat spinner. Dung
+  /// addPostFrameCallback vi khong duoc goi setState() ngay trong build().
+  void _checkWifiScanArrived(TelemetryState t) {
+    if (!_scanning) return;
+    final updatedAt = t.wifiScanUpdatedAt;
+    if (updatedAt == null || _scanRequestedAt == null) return;
+    if (updatedAt.isAfter(_scanRequestedAt!)) {
+      _scanTimeoutTimer?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _scanning = false);
+      });
+    }
   }
 
   /// [FIX] Truoc day moi nut trong tab nay (Quet WiFi, Ket Noi, Ngat Ket
@@ -59,6 +107,7 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
     final t = prov.telemetry;
     final theme = Theme.of(context);
     final staConnected = t.wifiStaConnected == true;
+    _checkWifiScanArrived(t);
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -109,6 +158,8 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
               ),
             ),
             const SizedBox(height: 16),
+            Text('CHỌN MẠNG WIFI', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, letterSpacing: 0.4)),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -119,46 +170,101 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
                 ),
                 const SizedBox(width: 10),
                 OutlinedButton.icon(
-                  onPressed: () => _publish(context, 'WIFI_SCAN', 'Đang quét WiFi...'),
-                  icon: const Icon(Icons.search_rounded, size: 18),
-                  label: const Text('Quét'),
+                  onPressed: _scanning ? null : () => _startWifiScan(context, prov),
+                  icon: _scanning
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.search_rounded, size: 18),
+                  label: Text(_scanning ? 'Đang quét...' : 'Quét'),
                 ),
               ],
             ),
-            if (t.wifiScanResults.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 180),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.colorScheme.outlineVariant),
-                ),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: t.wifiScanResults.length,
-                  separatorBuilder: (_, _) => Divider(height: 1, color: theme.colorScheme.outlineVariant),
-                  itemBuilder: (ctx, i) {
-                    final n = t.wifiScanResults[i];
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(_rssiIcon(n.rssi), size: 20, color: theme.colorScheme.primary),
-                      title: Text(n.ssid, style: const TextStyle(fontSize: 13.5)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
+            const SizedBox(height: 10),
+            // [FIX] Truoc day CHI hien khu vuc nay khi wifiScanResults khong
+            // rong - bam Quet xong KHONG THAY GI THAY DOI cho toi khi ket
+            // qua ve (vai giay), tuong nhu app khong phan hoi. Gio luon
+            // chiem 1 vung co dinh voi 3 trang thai ro rang: dang quet / co
+            // ket qua / chua quet lan nao - chuyen dong nhat, chuyen nghiep
+            // hon giua cac lan bam.
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _scanning
+                  ? Container(
+                      key: const ValueKey('scanning'),
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
                         children: [
-                          if (n.secure) Icon(Icons.lock_rounded, size: 14, color: theme.colorScheme.outline),
-                          const SizedBox(width: 4),
-                          Text('${n.rssi} dBm', style: theme.textTheme.bodySmall),
+                          const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4)),
+                          const SizedBox(height: 10),
+                          Text('Đang quét mạng WiFi xung quanh van...', style: theme.textTheme.bodySmall),
                         ],
                       ),
-                      onTap: () => setState(() => _ssidCtrl.text = n.ssid),
-                    );
-                  },
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
+                    )
+                  : t.wifiScanResults.isNotEmpty
+                      ? Container(
+                          key: const ValueKey('results'),
+                          constraints: const BoxConstraints(maxHeight: 200),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: theme.colorScheme.outlineVariant),
+                          ),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            padding: EdgeInsets.zero,
+                            itemCount: t.wifiScanResults.length,
+                            separatorBuilder: (_, _) => Divider(height: 1, color: theme.colorScheme.outlineVariant),
+                            itemBuilder: (ctx, i) {
+                              final n = t.wifiScanResults[i];
+                              final selected = _ssidCtrl.text == n.ssid;
+                              return ListTile(
+                                dense: true,
+                                selected: selected,
+                                selectedTileColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                                leading: Icon(_rssiIcon(n.rssi), size: 20, color: theme.colorScheme.primary),
+                                title: Text(n.ssid, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (n.secure) Icon(Icons.lock_rounded, size: 14, color: theme.colorScheme.outline),
+                                    const SizedBox(width: 4),
+                                    Text('${n.rssi} dBm', style: theme.textTheme.bodySmall),
+                                    if (selected) ...[
+                                      const SizedBox(width: 6),
+                                      Icon(Icons.check_circle_rounded, size: 16, color: theme.colorScheme.primary),
+                                    ],
+                                  ],
+                                ),
+                                onTap: () => setState(() => _ssidCtrl.text = n.ssid),
+                              );
+                            },
+                          ),
+                        )
+                      : Container(
+                          key: const ValueKey('empty'),
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Chưa quét mạng nào — bấm "Quét" để tìm WiFi gần đây.',
+                              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+            ),
+            const SizedBox(height: 16),
+            Divider(height: 1, color: theme.colorScheme.outlineVariant),
+            const SizedBox(height: 16),
+            Text('MẬT KHẨU & KẾT NỐI', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, letterSpacing: 0.4)),
+            const SizedBox(height: 8),
             TextField(
               controller: _passCtrl,
               obscureText: true,

@@ -6,7 +6,7 @@ import 'state/auth_provider.dart';
 import 'state/theme_provider.dart';
 import 'state/van_list_provider.dart';
 import 'screens/login_screen.dart';
-import 'screens/van_list_screen.dart';
+import 'screens/main_shell.dart';
 import 'theme.dart';
 
 void main() {
@@ -42,7 +42,7 @@ class VanApp extends StatelessWidget {
 }
 
 /// Kiem tra phien dang nhap luc mo app - giong checkExistingSession() trong
-/// login.html: neu con token hop le thi vao thang VanListScreen.
+/// login.html: neu con token hop le thi vao thang MainShell.
 class _StartupGate extends StatefulWidget {
   const _StartupGate();
 
@@ -66,7 +66,7 @@ class _StartupGateState extends State<_StartupGate> {
       case AuthStatus.unknown:
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.loggedIn:
-        return const VanListScreen();
+        return const MainShell();
       case AuthStatus.loggedOut:
         return const LoginScreen();
     }

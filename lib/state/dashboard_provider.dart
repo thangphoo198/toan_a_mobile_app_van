@@ -48,13 +48,25 @@ class DashboardProvider extends ChangeNotifier {
     // lieu moi. Da xac nhan bang test that: PING nhan duoc (thay trong
     // Terminal) nhung man Giam Sat dung yen tai cho. Forward thang o day.
     telemetry.addListener(notifyListeners);
+    // [NEW] "Tu chua benh" cho BLE du phong - truoc day CHI thu ket noi BLE
+    // theo phan ung voi 1 SU KIEN MQTT (connect that bai/mat ket noi), nen
+    // neu chinh BLE roi (ra khoi tam song 1 chut, ESP32 tam khoi dong lai)
+    // TRONG LUC MQTT van chua on, khong co gi tu dong thu ket noi lai - dung
+    // yen o "MẤT KẾT NỐI" cho toi khi nguoi dung tu keo lam moi. Chu ky nay
+    // la "luoi an toan" chay ngam, tu kiem tra va thu lai neu can.
+    _bleRetryTimer = Timer.periodic(const Duration(seconds: 12), (_) => _maybeRetryBle());
   }
+
+  bool _disposed = false;
 
   @override
   void dispose() {
+    _disposed = true;
     telemetry.removeListener(notifyListeners);
     _mqtt.disconnect();
     _noDataWatchdog?.cancel();
+    _bleRetryTimer?.cancel();
+    _bleReconnectDelay?.cancel();
     _bleLinesSub?.cancel();
     _bleConnSub?.cancel();
     _ble?.dispose();
@@ -74,6 +86,8 @@ class DashboardProvider extends ChangeNotifier {
   StreamSubscription? _bleLinesSub;
   StreamSubscription? _bleConnSub;
   Timer? _noDataWatchdog;
+  Timer? _bleRetryTimer;
+  Timer? _bleReconnectDelay;
 
   // MQTT "connected" chi nghia la da ket noi toi BROKER tren mang - van
   // (thiet bi thuc) co dang lang nghe tren do khong lai la chuyen khac (vd
@@ -185,10 +199,14 @@ class DashboardProvider extends ChangeNotifier {
     // có WiFi (hoặc WiFi nhà van đang mất trong khi điện thoại vẫn có mạng),
     // broker sẽ không bao giờ nhận được gì từ van, và app sẽ đứng yên ở
     // "ONLINE" giả trong khi thực ra không điều khiển/giám sát được gì. Nếu
-    // sau 8s vẫn chưa nhận được BẤT KỲ message nào từ van, coi như MQTT
-    // không dùng được cho van này lúc này - chủ động thử BLE cục bộ.
+    // sau 4s vẫn chưa nhận được BẤT KỲ message nào từ van, coi như MQTT
+    // không dùng được cho van này lúc này - chủ động thử BLE cục bộ. [FIX]
+    // Rút từ 8s xuống 4s ("làm mượt" theo yêu cầu) - CH32 phản hồi PING/POS?
+    // trong dưới 1s khi WiFi thực sự thông, 4s đã đủ dư để không "nhầy" báo
+    // BLE khi mạng chỉ chậm nhẹ, mà không bắt người dùng chờ quá lâu khi
+    // mạng THẬT SỰ mất.
     _noDataWatchdog?.cancel();
-    _noDataWatchdog = Timer(const Duration(seconds: 8), () {
+    _noDataWatchdog = Timer(const Duration(seconds: 4), () {
       if (!_mqttProven) {
         telemetry.addLog(
           '[MQTT] Không nhận được phản hồi từ van (van có thể chưa có WiFi) - thử Bluetooth...',
@@ -271,12 +289,15 @@ class DashboardProvider extends ChangeNotifier {
   /// lưu - KHÔNG cần quét lại. Đường UART CH32<->ESP32 hoạt động độc lập với
   /// WiFi nên PING/GOTO/xem vị trí vẫn dùng được dù mất hoàn toàn Internet.
   Future<void> tryBleFallback() async {
+    if (_disposed) return;
+    if (_mqttProven) return; // MQTT da xac nhan song - khong can BLE nua
     if (_ble != null &&
         (_ble!.state == BleConnState.connected ||
             _ble!.state == BleConnState.connecting)) {
       return;
     }
     final deviceId = await prefsService.getBleDeviceId(van.mqttPrefix);
+    if (_disposed) return;
     if (deviceId == null)
       return; // van nay chua tung ghep noi BLE - khong co gi de fallback
 
@@ -284,6 +305,7 @@ class DashboardProvider extends ChangeNotifier {
     _ble ??= BleService();
 
     final connected = await _ble!.connectById(deviceId);
+    if (_disposed) return;
     if (!connected) {
       telemetry.addLog(
         '[BLE] Không kết nối được (van có thể ngoài tầm sóng Bluetooth).',
@@ -293,6 +315,7 @@ class DashboardProvider extends ChangeNotifier {
     }
 
     final authed = await _ble!.authenticate();
+    if (_disposed) return;
     if (!authed) {
       telemetry.addLog('[BLE] Xác thực Bluetooth thất bại.');
       await _ble!.disconnect();
@@ -310,6 +333,14 @@ class DashboardProvider extends ChangeNotifier {
     _bleConnSub = _ble!.connectionState.listen((s) {
       if (s == BleConnState.disconnected) {
         telemetry.addLog('[BLE] Mất kết nối Bluetooth dự phòng.');
+        // [NEW] "Làm mượt" - tự thử kết nối lại sau vài giây thay vì đứng
+        // yên chờ chu kỳ _bleRetryTimer (tới 12s) hoặc người dùng tự kéo làm
+        // mới. Ca phổ biến nhất là rớt sóng thoáng qua (đi ra xa 1 chút rồi
+        // quay lại, ESP32 khởi động lại) - vài giây là đủ để nó sẵn sàng lại.
+        _bleReconnectDelay?.cancel();
+        _bleReconnectDelay = Timer(const Duration(seconds: 4), () {
+          if (!_disposed && !_mqttProven) tryBleFallback();
+        });
       }
       notifyListeners();
     });
@@ -324,6 +355,13 @@ class DashboardProvider extends ChangeNotifier {
     Future.delayed(const Duration(milliseconds: 600), () => publish('SETTINGS?'));
     Future.delayed(const Duration(milliseconds: 900), () => publish('ESP_INFO?'));
   }
+
+  /// "Luoi an toan" chay ngam moi 12s (xem constructor) - tu kiem tra va thu
+  /// ket noi lai BLE neu can, thay vi chi phan ung voi 1 su kien MQTT. Ban
+  /// than tryBleFallback() da tu bo qua neu MQTT dang on hoac BLE dang
+  /// connected/connecting nen goi lai nhieu lan la an toan, khong lam gi neu
+  /// khong can thiet.
+  void _maybeRetryBle() => tryBleFallback();
 
   /// Tra ve true neu lenh THAT SU duoc gui di qua 1 duong truyen dang hoat
   /// dong (khong dam bao van se nhan/thuc thi dung - chi dam bao KHONG roi
