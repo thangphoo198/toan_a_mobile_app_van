@@ -1,0 +1,36 @@
+name: iOS Build (unsigned)
+
+# Chi chay THU CONG (nut "Run workflow" tren tab Actions cua GitHub) - macOS
+# runner ton phi tren rat nhieu phut so voi Linux/Windows, nen KHONG de tu
+# dong chay tren moi push/PR. Sau khi co Apple Developer ID (certificate +
+# provisioning profile luu qua GitHub Secrets), se nang cap job nay de
+# codesign va xuat .ipa cai duoc len thiet bi thuc / TestFlight.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS (no code signing)
+        run: flutter build ios --release --no-codesign
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-unsigned
+          path: build/ios/iphoneos/Runner.app
+          retention-days: 14
