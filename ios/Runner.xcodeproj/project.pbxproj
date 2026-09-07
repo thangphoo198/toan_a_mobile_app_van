@@ -591,6 +591,13 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
+				// [CI] Ky thu cong (KHONG dung Automatic - can dang nhap Xcode/Apple ID,
+				// khong lam duoc tren may ao GitHub Actions). Ten profile phai KHOP
+				// CHINH XAC voi "Name" trong VanTest_TestFlight.mobileprovision.
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				DEVELOPMENT_TEAM = 554FB29GRD;
+				PROVISIONING_PROFILE_SPECIFIER = "VanTest TestFlight";
 			};
 			name = Release;
 		};
