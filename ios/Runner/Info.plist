@@ -33,6 +33,15 @@
 	<string>Ứng dụng cần Bluetooth để ghép nối, cấu hình WiFi và điều khiển/giám sát van cục bộ khi không có Internet.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Ứng dụng cần Bluetooth để ghép nối, cấu hình WiFi và điều khiển/giám sát van cục bộ khi không có Internet.</string>
+	<!-- file_picker (chon file .bin de nap OTA qua Bluetooth/AP - xem
+	     lib/screens/dashboard/ota_tab.dart) lien ket toi API camera/thu vien
+	     anh cua iOS cho CAC LOAI FILE KHAC ma no ho tro, du app nay chi dung
+	     no de chon file .bin. Apple van bat buoc khai bao purpose string cho
+	     MOI API duoc lien ket toi, ke ca khi app khong thuc su goi toi. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ứng dụng cần quyền này để chọn file firmware (.bin) từ máy khi nạp cập nhật thủ công.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Ứng dụng cần quyền này để chọn file firmware (.bin) từ máy khi nạp cập nhật thủ công.</string>
 	<!-- Backend/MQTT broker dung HTTP/WS thuong (khong TLS) tai dia chi IP co dinh
 	     103.143.207.89 - iOS mac dinh chan moi ket noi khong HTTPS (App Transport
 	     Security). Khai bao ngoai le rieng cho dung dia chi nay, KHONG mo rong toan
