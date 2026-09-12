@@ -37,6 +37,30 @@ class _TerminalTabState extends State<TerminalTab> {
     final prov = context.watch<DashboardProvider>();
     final log = prov.telemetry.logLines;
 
+    // [NEW] Terminal cho phep gui LENH THO BAT KY (RESET, MODEL, SETxxx, OTA,
+    // khong chi GOTO/dieu khien don thuan) - manh nhat trong toan bo app nen
+    // chan bang quyen CAI DAT (nghiem ngat nhat), khong tach rieng duoc theo
+    // tung lenh vi day la 1 o nhap tu do.
+    if (!prov.van.canConfigure) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock_outline_rounded, size: 56, color: Theme.of(context).colorScheme.outline),
+              const SizedBox(height: 16),
+              Text(
+                'Bạn không có quyền Cài Đặt van này — Terminal (lệnh thô) bị khoá.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
     });

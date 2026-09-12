@@ -14,7 +14,12 @@ class VanQuickStatus {
   // Da quet xong chua (##MON##.scan, tuong ung is_scan_done ben CH32) - false
   // = dang quet/phuc hoi vi tri, vi tri (pos) THUC SU vo nghia luc nay.
   bool? scanDone;
-  VanQuickStatus({this.online = false, this.pos, this.wifiRssi, this.running, this.scanDone});
+  // [NEW] Model THAT SU dang chay tren van (##MCU##.van, vd "F041"/"S043") -
+  // khac voi Van.model luu trong database app (nhap 1 lan luc them van, co
+  // the LECH neu ai do doi model vat ly tren thiet bi sau do ma khong cap
+  // nhat lai trong app - "Quan Ly Van" phai uu tien gia tri SONG nay).
+  String? model;
+  VanQuickStatus({this.online = false, this.pos, this.wifiRssi, this.running, this.scanDone, this.model});
 }
 
 /// Dich vu theo doi trang thai NHIEU van CUNG LUC cho tab "Quan Ly Van" -
@@ -83,19 +88,27 @@ class VanStatusChecker {
     }
     _client = client;
 
+    // [FIX] Topic gio nam duoi 1 namespace goc chung "van/" (xem chu thich
+    // computeDeviceTopics() ben esp32c3_ota.ino) - ACL cua broker chi can 1
+    // dong "van/#" duy nhat cho MOI van, khong phai sua tay moi khi them van
+    // moi nhu truoc (tung van 1 dong ACL rieng theo prefix).
     for (final prefix in mqttPrefixes) {
-      client.subscribe('$prefix/status', MqttQos.atMostOnce);
-      client.subscribe('$prefix/telemetry', MqttQos.atMostOnce);
-      client.subscribe('$prefix/log', MqttQos.atMostOnce);
+      client.subscribe('van/$prefix/status', MqttQos.atMostOnce);
+      client.subscribe('van/$prefix/telemetry', MqttQos.atMostOnce);
+      client.subscribe('van/$prefix/log', MqttQos.atMostOnce);
     }
 
     _sub = client.updates?.listen((events) {
       bool changed = false;
       for (final e in events) {
         final topic = e.topic;
-        final slash = topic.indexOf('/');
+        // "van/<prefix>/<loai>" - bo qua segment goc "van/" roi moi lay prefix
+        // (segment thu 2), khac voi truoc day prefix la segment DAU TIEN.
+        if (!topic.startsWith('van/')) continue;
+        final rest = topic.substring(4);
+        final slash = rest.indexOf('/');
         if (slash <= 0) continue;
-        final prefix = topic.substring(0, slash);
+        final prefix = rest.substring(0, slash);
         final r = results[prefix];
         final parser = _parsers[prefix];
         if (r == null || parser == null) continue;
@@ -107,6 +120,7 @@ class VanStatusChecker {
         final t = _states[prefix]!;
         r.pos = t.pos ?? t.monPos ?? r.pos;
         r.wifiRssi = t.wifiStaRSSI ?? r.wifiRssi;
+        r.model = t.mcuVan ?? t.monVan ?? r.model;
         // [FIX] KHONG dung t.isRunning/t.monRun (tu "RUN="/is_van_running ben
         // CH32) - nghia thuc su la "van dang o vi tri khac 1" (bus bi khoa),
         // TRUE VINH VIEN ca luc dong co dang DUNG YEN cho toi khi ve vi tri 1
@@ -131,9 +145,9 @@ class VanStatusChecker {
     if (client == null || client.connectionStatus?.state != MqttConnectionState.connected) return;
     for (final prefix in results.keys) {
       final b1 = MqttClientPayloadBuilder()..addString('PING');
-      client.publishMessage('$prefix/cmd', MqttQos.atMostOnce, b1.payload!);
+      client.publishMessage('van/$prefix/cmd', MqttQos.atMostOnce, b1.payload!);
       final b2 = MqttClientPayloadBuilder()..addString('WIFI_STATUS?');
-      client.publishMessage('$prefix/cmd', MqttQos.atMostOnce, b2.payload!);
+      client.publishMessage('van/$prefix/cmd', MqttQos.atMostOnce, b2.payload!);
     }
   }
 
@@ -144,7 +158,7 @@ class VanStatusChecker {
     final client = _client;
     if (client == null || client.connectionStatus?.state != MqttConnectionState.connected) return false;
     final builder = MqttClientPayloadBuilder()..addString(cmd);
-    client.publishMessage('$mqttPrefix/cmd', MqttQos.atMostOnce, builder.payload!);
+    client.publishMessage('van/$mqttPrefix/cmd', MqttQos.atMostOnce, builder.payload!);
     return true;
   }
 

@@ -44,11 +44,23 @@ class PrefsService {
   }
 
   // --- Cau hinh MQTT broker (mac dinh khop voi web client) ---
+  // [FIX] host/port mac dinh gio la domain HTTPS (toana.cloud:443, qua proxy
+  // /mqtt cua nginx - dung wss:// khong con cleartext, xem
+  // mqtt_client_creator_io/web.dart) thay vi IP:9001 truoc day. Neu thiet bi
+  // da tung LUU (setMqttConfig()) gia tri IP cu tu ban cai truoc, "chua" lai
+  // ve mac dinh moi - gia tri cu gio da hong (Mosquitto khong con TLS truc
+  // tiep tren cong 9001).
   Future<Map<String, dynamic>> getMqttConfig() async {
     final p = await SharedPreferences.getInstance();
+    var host = p.getString(_kMqttHost) ?? 'toana.cloud';
+    var port = p.getInt(_kMqttPort) ?? 443;
+    if (host == '103.143.207.89') {
+      host = 'toana.cloud';
+      port = 443;
+    }
     return {
-      'host': p.getString(_kMqttHost) ?? '103.143.207.89',
-      'port': p.getInt(_kMqttPort) ?? 9001,
+      'host': host,
+      'port': port,
       'user': p.getString(_kMqttUser) ?? 'thangpro1998',
       'pass': p.getString(_kMqttPass) ?? 'thang123',
     };

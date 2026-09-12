@@ -99,7 +99,10 @@ class _MonitorTabState extends State<MonitorTab> {
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
     final t = prov.telemetry;
-    final mode = t.pos != null ? kWaterModes[t.pos] : null;
+    // [FIX] Van 3 cua (F041/F043) khong co Hoan Nguyen(3)/Bu Muoi(4) rieng -
+    // vi tri 3 mang y nghia "Rua Xuoi" (giong vi tri 5 tren van 5 cua), xem
+    // modeForPosition() trong constants.dart.
+    final mode = modeForPosition(t.mcuVan, t.pos);
     final isFlowValve = isFlowValveModel(t.mcuVan);
     final isMoving = t.monMod == 'RUN';
     // [NEW] Dang quet/phuc hoi vi tri (detect_and_recover() ben CH32, xem
@@ -197,7 +200,7 @@ class _MonitorTabState extends State<MonitorTab> {
                   // [FIX] Vi tri VO NGHIA trong luc dang quet (cus_pos=POS_NOT_FOUND
                   // ben CH32) - truyen null de PositionGauge hien "--" thay vi 1
                   // con so cu/sai con sot lai tu truoc do.
-                  PositionGauge(position: isScanning ? null : t.pos, isMoving: isMoving, size: 126),
+                  PositionGauge(position: isScanning ? null : t.pos, isMoving: isMoving, size: 126, modelCode: t.mcuVan),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -282,7 +285,16 @@ class _MonitorTabState extends State<MonitorTab> {
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Theme.of(context).colorScheme.primary),
                   ),
                   const SizedBox(width: 3),
-                  Text('L/h', style: Theme.of(context).textTheme.bodySmall),
+                  // [FIX] Don vi THAT SU cua f_speed la m³/h, khong phai
+                  // "L/h" - xem cal_flow_sensor() trong flow.c ben firmware:
+                  // tp_m3 = pulse_count*360/(PULSE_PER_LITER*t) chinh la
+                  // cong thuc m³/h*100 (co ghi ro trong chinh comment cua
+                  // ham do), khop dung don vi m³ da dung xuyen suot phan con
+                  // lai cua he thong luu luong (Q_flow_set, remaining_display_m3,
+                  // WaterTank - deu la m³). "L/h" truoc day la nham don vi
+                  // thuan tuy (ten bien firmware "lit_p_hour" gay hieu lam),
+                  // KHONG phai loi cong thuc - gia tri so giu nguyen, chi sua nhan.
+                  Text('m³/h', style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
               children: [

@@ -13,14 +13,14 @@ import 'dashboard/van_settings_tab.dart';
 import 'van_list_tab.dart';
 
 /// Khung dieu huong GOC cua app (thay the cap VanListScreen -> push ->
-/// DashboardScreen truoc day) - MOT thanh 4-tab-o-duoi DUY NHAT cho toan bo
+/// DashboardScreen truoc day) - MOT thanh 5-tab-o-duoi DUY NHAT cho toan bo
 /// app: Giam Sat/Cai Dat/He Thong (cua VAN DANG CHON) + Quan Ly Van (danh
 /// sach toan bo van, chon van khac tu day thay vi phai "thoat ra" man hinh
-/// rieng). Ly do gop lam 1: nguoi dung yeu cau dua "Quan Ly Van" xuong thanh
-/// 4 tab thay vi giau trong tab Tai Khoan - 1 tab KHONG THE vua la noi dung
-/// nhung cung vua la 1 man hinh duoc PUSH rieng, nen phai hop nhat thanh 1
-/// shell duy nhat, "van dang chon" la 1 STATE cua shell nay thay vi 1 THAM
-/// SO cua route.
+/// rieng) + Tai Khoan (sau Quan Ly Van). Ly do gop lam 1: "Quan Ly Van" va
+/// "Tai Khoan" deu phai la tab luon co san o thanh dieu huong - 1 tab KHONG
+/// THE vua la noi dung nhung cung vua la 1 man hinh duoc PUSH rieng, nen
+/// phai hop nhat thanh 1 shell duy nhat, "van dang chon" la 1 STATE cua
+/// shell nay thay vi 1 THAM SO cua route.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -34,6 +34,7 @@ class _MainShellState extends State<MainShell> {
   int _navIndex = 3;
   DashboardProvider? _dashProvider;
   StreamSubscription<String>? _eventsSub;
+  StreamSubscription<String>? _blePromptSub;
 
   @override
   void initState() {
@@ -46,14 +47,48 @@ class _MainShellState extends State<MainShell> {
   @override
   void dispose() {
     _eventsSub?.cancel();
+    _blePromptSub?.cancel();
     _dashProvider?.dispose();
     super.dispose();
   }
 
   /// Nguoi dung chon 1 van tu tab "Quan Ly Van" - tao DashboardProvider MOI
-  /// cho van do (huy provider cu neu co), roi chuyen sang tab Giam Sat.
-  void _selectVan(Van v) {
+  /// cho van do (huy provider cu neu co), roi chuyen sang tab Giam Sat. [FIX]
+  /// Neu van DANG XEM hien dang giu 1 ket noi BLE that su (activeTransport ==
+  /// ble) - PHAI hoi truoc khi chuyen, vi dispose() provider cu se ngat ket
+  /// noi BLE do NGAY LAP TUC (dien thoai chi giu duoc 1 ket noi GATT tai 1
+  /// thoi diem - xem BleService._activeGattConnections) - khong duoc ngat
+  /// ngam mot ket noi dang dieu khien/giam sat cuc bo ma khong bao truoc.
+  Future<void> _selectVan(Van v) async {
+    final current = _dashProvider;
+    if (current != null &&
+        current.van.mqttPrefix != v.mqttPrefix &&
+        current.activeTransport == ActiveTransport.ble) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Ngắt kết nối Bluetooth?'),
+          content: Text(
+            'Đang điều khiển/giám sát van "${current.van.displayName}" qua Bluetooth. '
+            'Để chuyển sang van "${v.displayName}", cần ngắt kết nối này trước. Tiếp tục?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Ngắt & Chuyển Van'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
     _eventsSub?.cancel();
+    _blePromptSub?.cancel();
     _dashProvider?.dispose();
     final provider = DashboardProvider(van: v, prefsService: PrefsService());
     provider.loadConfigAndConnect();
@@ -62,6 +97,28 @@ class _MainShellState extends State<MainShell> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
       );
+    });
+    // [NEW] Hoi truoc khi tu dong ket noi BLE khi mat MQTT (xem
+    // DashboardProvider.tryBleFallback()/confirmBleFallback()) - SnackBar co
+    // nut bam "KẾT NỐI", neu nguoi dung bo qua/de tu tat thi coi nhu tu choi
+    // (declineBleFallback() tam ngung hoi lai vai phut).
+    _blePromptSub = provider.bleFallbackPrompts.listen((msg) {
+      if (!mounted) return;
+      final controller = ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          duration: const Duration(seconds: 10),
+          action: SnackBarAction(
+            label: 'KẾT NỐI',
+            onPressed: provider.confirmBleFallback,
+          ),
+        ),
+      );
+      controller.closed.then((reason) {
+        if (reason != SnackBarClosedReason.action) {
+          provider.declineBleFallback();
+        }
+      });
     });
     setState(() {
       _dashProvider = provider;
@@ -82,16 +139,6 @@ class _MainShellState extends State<MainShell> {
     }
     setState(() => _navIndex = i);
     if (i == 1 && _dashProvider != null) _dashProvider!.publish('SETTINGS?');
-  }
-
-  Future<void> _openAccount() async {
-    final van = _dashProvider?.van;
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Scaffold(
-        appBar: AppBar(title: const Text('Tài Khoản')),
-        body: AccountTab(van: van),
-      ),
-    ));
   }
 
   Widget _buildStatusPill(DashboardProvider prov) {
@@ -159,20 +206,24 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final isVanListTab = _navIndex == 3;
+    final isAccountTab = _navIndex == 4;
+    final String title;
+    if (isVanListTab) {
+      title = 'Quản Lý Van';
+    } else if (isAccountTab) {
+      title = 'Tài Khoản';
+    } else {
+      title = _dashProvider?.van.displayName ?? 'Chưa chọn van';
+    }
     final scaffold = Scaffold(
       appBar: AppBar(
-        title: Text(
-          isVanListTab ? 'Quản Lý Van' : (_dashProvider?.van.displayName ?? 'Chưa chọn van'),
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(title, overflow: TextOverflow.ellipsis),
         actions: [
-          if (!isVanListTab && _dashProvider != null)
+          // [FIX] Bo nut icon "Tài khoản" tren AppBar - gio da la 1 tab rieng
+          // luon co san o thanh dieu huong duoi (sau "Quan Ly Van"), khong
+          // can 1 loi tat thu 2 trung lap nua.
+          if (!isVanListTab && !isAccountTab && _dashProvider != null)
             Consumer<DashboardProvider>(builder: (ctx, prov, _) => _buildStatusPill(prov)),
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            tooltip: 'Tài khoản',
-            onPressed: _openAccount,
-          ),
         ],
       ),
       body: IndexedStack(
@@ -182,6 +233,7 @@ class _MainShellState extends State<MainShell> {
           _dashboardTabOrPlaceholder((k) => VanSettingsTab(key: k), 'settings'),
           _dashboardTabOrPlaceholder((k) => SystemTab(key: k), 'system'),
           VanListTab(onSelectVan: _selectVan),
+          const AccountTab(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -193,6 +245,7 @@ class _MainShellState extends State<MainShell> {
           NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Cài Đặt'),
           NavigationDestination(icon: Icon(Icons.developer_board_outlined), selectedIcon: Icon(Icons.developer_board), label: 'Hệ Thống'),
           NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'Quản Lý Van'),
+          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Tài Khoản'),
         ],
       ),
     );

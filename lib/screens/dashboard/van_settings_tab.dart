@@ -147,12 +147,42 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
     return d;
   }
 
+  /// [NEW] TOAN BO tab nay la "CAI DAT" (hen gio, model, H10/Fxx/Cxx, dong bo
+  /// giờ) - khong co gi thuoc "giam sat" thuan tuy o day, nen khi van chia se
+  /// khong cap quyen canConfigure, chan CA TAB bang 1 man hinh giai thich
+  /// thay vi khoa tung o nhap rieng le (don gian hon, ro rang hon cho nguoi
+  /// dung ve pham vi quyen ho co).
+  Widget _noConfigureAccess(BuildContext context, DashboardProvider prov) {
+    return RefreshIndicator(
+      onRefresh: () => prov.refreshAll(),
+      child: ListView(
+        children: [
+          const SizedBox(height: 80),
+          Center(
+            child: Icon(Icons.lock_outline_rounded, size: 56, color: Theme.of(context).colorScheme.outline),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              'Bạn không có quyền Cài Đặt van này.\nChủ van chỉ chia sẻ quyền giám sát${prov.van.canControl ? ' và điều khiển' : ''} — liên hệ chủ van nếu cần thay đổi cấu hình.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
     final t = prov.telemetry;
     _syncFromState(t);
     final isFlowValve = isFlowValveModel(t.mcuVan);
+
+    if (!prov.van.canConfigure) return _noConfigureAccess(context, prov);
 
     // [FIX] Bo nut "Làm Mới" o AppBar (dashboard_screen.dart) - dung
     // RefreshIndicator (keo-de-lam-moi) o day, dong bo cach lam voi tab
@@ -260,7 +290,11 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                 child: TextField(
                   controller: _h10Ctrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'H10 (0-99 phút)', border: OutlineInputBorder()),
+                  // [FIX] H10 la don vi NGAY, khong phai phut - xem
+                  // handle_seth10() trong uart1_rx.c: "remaining =
+                  // h_10_value * 1440" (so phut/ngay), dung y nghia giong P1
+                  // cua van timer (SETPOS:1) - "so ngay giua 2 lan rua nguoc".
+                  decoration: const InputDecoration(labelText: 'H10 (0-99 ngày)', border: OutlineInputBorder()),
                 ),
               ),
               const SizedBox(width: 8),
@@ -268,7 +302,7 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                 onPressed: () {
                   final v = _asInt(_h10Ctrl);
                   if (v == null || v < 0 || v > 99) return showSnack(context, 'Giá trị phải 0-99.', isError: true);
-                  _publish(context, 'SETH10:$v', 'Đã lưu H10 = $v.');
+                  _publish(context, 'SETH10:$v', 'Đã lưu H10 = $v ngày.');
                 },
                 child: const Text('Lưu'),
               ),
@@ -328,7 +362,13 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                   style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ),
-            for (final entry in kWaterModes.entries)
+            // [FIX] Van 3 cua (F041/F043) chi co 3 vi tri THAT SU (khong co
+            // P4/P5 - xem modeForPosition()/maxPositionsForModel() trong
+            // constants.dart, khop firmware motor3.c) - chi hien dung so
+            // dong cau hinh, P3 dung nhan "Rua Xuoi" thay vi "Hoan Nguyen".
+            for (final entry in [
+              for (int p = 1; p <= maxPositionsForModel(t.mcuVan); p++) MapEntry(p, modeForPosition(t.mcuVan, p)!),
+            ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Row(
@@ -340,7 +380,19 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                         child: TextField(
                           controller: _timeCtrls[entry.key],
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: 'Phút', isDense: true, border: OutlineInputBorder()),
+                          // [FIX] Vi tri 1 (P1, Che Do Loc) o van timer la don
+                          // vi NGAY, khong phai phut - xem handle_setpos()
+                          // trong uart1_rx.c: "remaining = (n==1) ? mins*1440
+                          // : mins" - gia tri nhap cho P1 duoc NHAN VOI 1440
+                          // (so phut/ngay) truoc khi dung, tuc firmware doc
+                          // no la SO NGAY giua 2 lan loc, KHONG phai so phut
+                          // nhu cac vi tri con lai (rua nguoc/rua xuoi... la
+                          // cac buoc ngan, tinh bang phut la dung).
+                          decoration: InputDecoration(
+                            labelText: entry.key == 1 ? 'Ngày' : 'Phút',
+                            isDense: true,
+                            border: const OutlineInputBorder(),
+                          ),
                         ),
                       ),
                     ] else ...[
@@ -360,9 +412,10 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
                       onPressed: () {
                         final label = entry.value.name;
                         if (!isFlowValve) {
+                          final unit = entry.key == 1 ? 'ngày' : 'phút';
                           final v = _asInt(_timeCtrls[entry.key]!);
-                          if (v == null || v < 0 || v > 99) return showSnack(context, 'Số phút phải 0-99.', isError: true);
-                          _publish(context, 'SETPOS:${entry.key}:$v', 'Đã lưu $label = $v phút.');
+                          if (v == null || v < 0 || v > 99) return showSnack(context, 'Giá trị phải 0-99 $unit.', isError: true);
+                          _publish(context, 'SETPOS:${entry.key}:$v', 'Đã lưu $label = $v $unit.');
                         } else {
                           final parsed = _parseFlow(_flowCtrls[entry.key]!.text);
                           if (parsed == null) return showSnack(context, 'Lưu lượng phải từ 0 đến 99.99 m³.', isError: true);
@@ -384,7 +437,7 @@ class _VanSettingsTabState extends State<VanSettingsTab> {
               spacing: 8,
               runSpacing: 8,
               children: Van.modelLabels.entries.map((e) {
-                final modelNum = {'F021': 1, 'F023': 2, '5021': 3, '5023': 4}[e.key]!;
+                final modelNum = {'F041': 1, 'F043': 2, 'S041': 3, 'S043': 4}[e.key]!;
                 final selected = t.mcuVan == e.key;
                 return ChoiceChip(
                   label: Text('${e.key} — ${e.value}'),

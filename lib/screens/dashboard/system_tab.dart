@@ -3,9 +3,13 @@ import 'esp_settings_tab.dart';
 import 'ota_tab.dart';
 import 'terminal_tab.dart';
 
-/// Gom 3 khu vuc ky thuat/it dung hang ngay (Nap CH32, Cai Dat ESP32,
-/// Terminal) vao 1 muc bottom-nav duy nhat "He Thong", dieu huong bang tab
-/// con ben trong - giu bottom nav chinh o muc 5 muc theo chuan Material.
+/// Gom 3 khu vuc ky thuat/it dung hang ngay (Cap Nhat firmware CH32+ESP32,
+/// Cai Dat ESP32/WiFi, Terminal) vao 1 muc bottom-nav duy nhat "He Thong",
+/// dieu huong bang tab con ben trong - giu bottom nav chinh o muc 5 muc
+/// theo chuan Material. [FIX] Tab dau tien truoc day chi co CH32 ("Nap
+/// CH32") - gio gop CA ESP32 vao chung 1 tab "Cap Nhat" (xem ota_tab.dart),
+/// vi ca 2 chip deu co the OTA tu xa qua MQTT (DOWNLOAD:/ESPOTA:), khong can
+/// tach rieng theo chip nua.
 class SystemTab extends StatelessWidget {
   const SystemTab({super.key});
 
@@ -29,7 +33,7 @@ class SystemTab extends StatelessWidget {
               labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
               unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
               tabs: const [
-                Tab(text: '⚡ Nạp CH32'),
+                Tab(text: '🔄 Cập Nhật'),
                 Tab(text: '📶 ESP32 & WiFi'),
                 Tab(text: '📟 Terminal'),
               ],

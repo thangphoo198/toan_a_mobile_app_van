@@ -23,7 +23,20 @@ class ControlTab extends StatelessWidget {
     return false;
   }
 
-  void _sendGoto(BuildContext context, int pos, bool isRunning, bool isScanning) {
+  /// [NEW] Van duoc chia se CHI GIAM SAT (canControl=false, xem [[them tinh
+  /// nang chia se]]/van_shares) - chan gui lenh dieu khien tu phia app TRUOC
+  /// khi kiem tra ket noi/trang thai, vi day la gioi han QUYEN chu khong
+  /// phai loi ket noi.
+  bool _checkPermission(BuildContext context, DashboardProvider prov) {
+    if (prov.van.canControl) return true;
+    HapticFeedback.heavyImpact();
+    showSnack(context, 'Bạn chỉ được chia sẻ quyền giám sát van này — không thể điều khiển. Liên hệ chủ van để được cấp thêm quyền.', isError: true);
+    return false;
+  }
+
+  void _sendGoto(BuildContext context, int pos, bool isRunning, bool isScanning, String? modelCode) {
+    final prov0 = context.read<DashboardProvider>();
+    if (!_checkPermission(context, prov0)) return;
     // [NEW] Firmware TU CHOI GOTO trong luc dang quet ("ERR: chua quet" - xem
     // uart1_goto_run() trong uart1_rx.c) vi vi tri hien tai CHUA XAC DINH -
     // chan tu phia app truoc, khoi gui lenh chac chan bi tu choi.
@@ -40,12 +53,14 @@ class ControlTab extends StatelessWidget {
     final prov = context.read<DashboardProvider>();
     if (!_checkConnectionBeforeSend(context, prov)) return;
     HapticFeedback.lightImpact();
-    final mode = kWaterModes[pos]!;
+    final mode = modeForPosition(modelCode, pos)!;
     prov.publish('GOTO:$pos');
     showSnack(context, 'Đã gửi lệnh chuyển sang "${mode.name}" (vị trí $pos)...');
   }
 
   void _sendNext(BuildContext context, bool isRunning, bool isScanning) {
+    final prov0 = context.read<DashboardProvider>();
+    if (!_checkPermission(context, prov0)) return;
     if (isScanning) {
       HapticFeedback.heavyImpact();
       showSnack(context, 'Van đang quét và phục hồi chế độ — vui lòng đợi xong rồi thử lại.', isError: true);
@@ -68,6 +83,14 @@ class ControlTab extends StatelessWidget {
     final prov = context.watch<DashboardProvider>();
     final t = prov.telemetry;
     final currentPos = t.pos;
+    // [FIX] Van 3 cua (F041/F043) chi co 3 vi tri THAT SU (motor3.c ben
+    // firmware, xem GOTO trong uart1_rx.c gio da tu choi target>3 cho model
+    // nay) - chi hien dung so o tuong ung, vi tri 3 dung nhan/mau "Rua Xuoi"
+    // (giong vi tri 5 tren van 5 cua) thay vi "Hoan Nguyen" sai hoan toan.
+    final maxPos = maxPositionsForModel(t.mcuVan);
+    final visibleModes = [
+      for (int p = 1; p <= maxPos; p++) MapEntry(p, modeForPosition(t.mcuVan, p)!),
+    ];
     // QUAN TRONG: KHONG dung t.isRunning (tu "RUN=" / is_van_running ben CH32)
     // o day - bien do thuc ra nghia la "van dang o vi tri khac 1" (bus bi
     // khoa), TRUE VINH VIEN cho toi khi ve vi tri 1, khong phai "dong co
@@ -83,6 +106,11 @@ class ControlTab extends StatelessWidget {
     // neu nhieu dieu kien cung dung, chi hien 1 banner theo do uu tien, vi
     // day la nguyen nhan goc khien bam nut vo nghia.
     final isStale = prov.isConnectionStale;
+    // [NEW] Van duoc chia se chi de GIAM SAT - uu tien cao nhat trong cac
+    // banner canh bao vi day la gioi han CHU DINH (khong phai su co tam
+    // thoi nhu mat ket noi/dang chay), nguoi dung can hieu ro tai sao nut bi
+    // khoa vinh vien tren van nay chu khong phai "cu doi la duoc".
+    final noPermission = !prov.van.canControl;
 
     // [FIX] Truoc day la ListView rieng (trang dieu huong bottom-nav doc lap)
     // - gio duoc nhung vao chung ListView cua MonitorTab (gop "Dieu Khien"
@@ -90,7 +118,29 @@ class ControlTab extends StatelessWidget {
     // de tranh loi "ListView long trong ListView" (2 truc cuon xung dot).
     return Column(
       children: [
-        if (isStale)
+        if (noPermission)
+          Container(
+            margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.grey.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.visibility_rounded, color: Colors.grey, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Bạn chỉ có quyền GIÁM SÁT van này (chủ van chưa cấp quyền điều khiển).',
+                    style: TextStyle(color: Colors.grey.shade800, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (isStale)
           Container(
             margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -177,9 +227,9 @@ class ControlTab extends StatelessWidget {
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
               childAspectRatio: 1.3,
-              children: kWaterModes.entries.map((e) {
+              children: visibleModes.map((e) {
                 final selected = currentPos == e.key;
-                final locked = isStale || isScanning || (isRunning && !selected);
+                final locked = noPermission || isStale || isScanning || (isRunning && !selected);
                 return Opacity(
                   opacity: locked ? 0.45 : 1.0,
                   child: Material(
@@ -189,7 +239,7 @@ class ControlTab extends StatelessWidget {
                     shadowColor: e.value.color.withValues(alpha: 0.4),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
-                      onTap: () => _sendGoto(context, e.key, isRunning, isScanning),
+                      onTap: () => _sendGoto(context, e.key, isRunning, isScanning, t.mcuVan),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         decoration: BoxDecoration(
@@ -248,15 +298,19 @@ class ControlTab extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             FilledButton.icon(
-              onPressed: () => _sendNext(context, isRunning, isScanning),
-              icon: Icon(isStale
-                  ? Icons.wifi_off_rounded
-                  : (isScanning ? Icons.travel_explore_rounded : Icons.skip_next_rounded)),
-              label: Text(isStale
-                  ? 'Mất Kết Nối — Kéo Xuống Để Làm Mới'
-                  : (isScanning
-                      ? 'Đang Quét — Vui Lòng Đợi'
-                      : (isRunning ? 'Van Đang Chạy — Đợi Xong' : 'Bước Tới Vị Trí Kế Tiếp (NEXT)'))),
+              onPressed: noPermission ? null : () => _sendNext(context, isRunning, isScanning),
+              icon: Icon(noPermission
+                  ? Icons.visibility_rounded
+                  : (isStale
+                      ? Icons.wifi_off_rounded
+                      : (isScanning ? Icons.travel_explore_rounded : Icons.skip_next_rounded))),
+              label: Text(noPermission
+                  ? 'Chỉ Xem — Không Có Quyền Điều Khiển'
+                  : (isStale
+                      ? 'Mất Kết Nối — Kéo Xuống Để Làm Mới'
+                      : (isScanning
+                          ? 'Đang Quét — Vui Lòng Đợi'
+                          : (isRunning ? 'Van Đang Chạy — Đợi Xong' : 'Bước Tới Vị Trí Kế Tiếp (NEXT)')))),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),

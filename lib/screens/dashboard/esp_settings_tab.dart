@@ -101,6 +101,59 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
     return Icons.wifi_1_bar_rounded;
   }
 
+  /// [NEW] Nhan chat luong tin hieu de nguoi dung khong ranh ky thuat cung
+  /// hieu duoc con so dBm co y nghia gi - nguong khop voi _rssiIcon() o tren
+  /// (>= -60: manh/tot, >= -75: trung binh, con lai: yeu).
+  String _rssiQualityLabel(int rssi) {
+    if (rssi >= -60) return 'Tốt';
+    if (rssi >= -75) return 'Trung bình';
+    return 'Yếu';
+  }
+
+  /// [NEW] 1 muc thong tin mang GON: icon + 1 dong text thuong (khong bold,
+  /// khong nhan tieu de UPPERCASE rieng) - dung thay statGrid/StatBox (qua to
+  /// dam) cho khu vuc thong tin mang trong the "Kết Nối WiFi".
+  Widget _netInfoItem(ThemeData theme, {required IconData icon, required String value}) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: theme.colorScheme.outline),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              value,
+              style: theme.textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// [NEW] Tab nay xoay quanh cau hinh WiFi (doi mang/mat khau, bat/tat AP) -
+  /// thuoc nhom "CAI DAT", chan CA TAB neu van chia se khong cap quyen nay
+  /// (cung 1 kieu voi van_settings_tab.dart, xem chu thich o do).
+  Widget _noConfigureAccess(BuildContext context, DashboardProvider prov) {
+    return ListView(
+      children: [
+        const SizedBox(height: 80),
+        Center(child: Icon(Icons.lock_outline_rounded, size: 56, color: Theme.of(context).colorScheme.outline)),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            'Bạn không có quyền Cài Đặt van này (cấu hình WiFi).\nLiên hệ chủ van nếu cần thay đổi.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Theme.of(context).colorScheme.outline),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<DashboardProvider>();
@@ -108,6 +161,8 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
     final theme = Theme.of(context);
     final staConnected = t.wifiStaConnected == true;
     _checkWifiScanArrived(t);
+
+    if (!prov.van.canConfigure) return _noConfigureAccess(context, prov);
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -134,7 +189,9 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
               child: Row(
                 children: [
                   Icon(
-                    staConnected ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                    staConnected
+                        ? _rssiIcon(t.wifiStaRSSI ?? -100)
+                        : Icons.wifi_off_rounded,
                     color: staConnected ? Colors.green : theme.colorScheme.outline,
                     size: 26,
                   ),
@@ -147,15 +204,50 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
                           staConnected ? (t.wifiStaSSID ?? '--') : (t.wifiStaSavedSSID != null ? 'Chưa kết nối' : 'Chưa cấu hình mạng nào'),
                           style: theme.textTheme.titleSmall,
                         ),
-                        if (staConnected)
-                          Text('Tín hiệu ${t.wifiStaRSSI ?? '--'} dBm', style: theme.textTheme.bodySmall)
-                        else if (t.wifiStaSavedSSID != null)
+                        // [FIX] Bo dong "Tín hiệu X dBm" o day - trung lap voi
+                        // statGrid chi tiet hon ngay ben duoi (kem nhan chat
+                        // luong + IP/MAC/so lan mat ket noi).
+                        if (!staConnected && t.wifiStaSavedSSID != null)
                           Text('Đã lưu: ${t.wifiStaSavedSSID}', style: theme.textTheme.bodySmall),
                       ],
                     ),
                   ),
                 ],
               ),
+            ),
+            // [FIX] Doi tu statGrid/StatBox (chu to+dam, nhan UPPERCASE rieng
+            // dong) sang dang gon: 1 icon + 1 dong text nho cho moi muc, xep
+            // 2x2 - "tinh gon hon, dung icon thay vi chu to dam" theo yeu cau,
+            // van du 4 thong tin (IP, tin hieu, MAC, so lan mat ket noi) nhung
+            // chiem it khong gian/thi giac hon han.
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 20,
+              runSpacing: 10,
+              children: [
+                _netInfoItem(
+                  theme,
+                  icon: Icons.lan_rounded,
+                  value: staConnected ? (t.wifiStaIP ?? '--') : 'Chưa kết nối',
+                ),
+                _netInfoItem(
+                  theme,
+                  icon: staConnected && t.wifiStaRSSI != null ? _rssiIcon(t.wifiStaRSSI!) : Icons.wifi_off_rounded,
+                  value: staConnected && t.wifiStaRSSI != null
+                      ? '${t.wifiStaRSSI} dBm (${_rssiQualityLabel(t.wifiStaRSSI!)})'
+                      : '--',
+                ),
+                _netInfoItem(
+                  theme,
+                  icon: Icons.perm_device_information_rounded,
+                  value: t.wifiStaMac ?? '--',
+                ),
+                _netInfoItem(
+                  theme,
+                  icon: Icons.history_rounded,
+                  value: t.wifiStaDisconnectCount != null ? '${t.wifiStaDisconnectCount} lần mất kết nối' : '--',
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Text('CHỌN MẠNG WIFI', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary, letterSpacing: 0.4)),
@@ -339,7 +431,9 @@ class _EspSettingsTabState extends State<EspSettingsTab> {
           ),
           children: [
             statGrid([
-              StatBox(label: 'Firmware ESP32', value: t.espFw ?? '--', sub: t.espMqttPrefix != null ? 'Prefix: ${t.espMqttPrefix}' : null),
+              // [FIX] Bo StatBox "Firmware ESP32" o day - trung lap voi tab
+              // "Cap Nhat" (ota_tab.dart) gio da hien version NAY kem kiem
+              // tra/nut cap nhat, day chi con thong tin phan cung thuan tuy.
               StatBox(label: 'Chip', value: t.espChip ?? '--', sub: t.espCpuFreq != null ? '${t.espCpuFreq} MHz' : null),
               StatBox(label: 'Flash', value: t.espFlashSize != null ? '${t.espFlashSize} MB' : '--', sub: 'Uptime: ${_uptimeStr(t.espUptime)}'),
               StatBox(

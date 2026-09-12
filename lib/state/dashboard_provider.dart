@@ -36,6 +36,16 @@ class DashboardProvider extends ChangeNotifier {
     if (!_events.isClosed) _events.add(message);
   }
 
+  // [NEW] Hoi nguoi dung TRUOC khi tu dong ket noi BLE khi mat MQTT - truoc
+  // day tryBleFallback() tu ket noi ngam, nguoi dung khong biet dien thoai
+  // dang tu chuyen sang phat/nhan qua Bluetooth. Gio chi PHAT 1 thong bao co
+  // nut bam qua stream nay (xem main_shell.dart), THUC SU ket noi chi khi
+  // nguoi dung tu bam xac nhan (confirmBleFallback()).
+  final _bleFallbackPromptController = StreamController<String>.broadcast();
+  Stream<String> get bleFallbackPrompts => _bleFallbackPromptController.stream;
+  bool _blePromptActive = false;
+  DateTime? _blePromptCooldownUntil;
+
   DashboardProvider({required this.van, required this.prefsService}) {
     telemetry = TelemetryState();
     _parser = TelemetryParser(telemetry);
@@ -71,13 +81,14 @@ class DashboardProvider extends ChangeNotifier {
     _bleConnSub?.cancel();
     _ble?.dispose();
     _events.close();
+    _bleFallbackPromptController.close();
     super.dispose();
   }
 
   MqttConnState connState = MqttConnState.disconnected;
   String? connError;
-  String host = '103.143.207.89';
-  int port = 9001;
+  String host = 'toana.cloud';
+  int port = 443;
   String mqttUser = 'thangpro1998';
   String mqttPass = 'thang123';
 
@@ -132,7 +143,12 @@ class DashboardProvider extends ChangeNotifier {
     return DateTime.now().difference(last) > const Duration(seconds: 60);
   }
 
-  String get topicCmd => '${van.mqttPrefix}/cmd';
+  // [FIX] Topic gio nam duoi 1 namespace goc chung "van/" (xem chu thich
+  // computeDeviceTopics() ben esp32c3_ota.ino) - ACL Mosquitto chi can 1
+  // dong "van/#" cho MOI van thay vi phai sua tay them 1 dong rieng theo
+  // tung mqttPrefix moi nhu truoc.
+  String get _topicRoot => 'van/${van.mqttPrefix}';
+  String get topicCmd => '$_topicRoot/cmd';
 
   Future<void> loadConfigAndConnect() async {
     final cfg = await prefsService.getMqttConfig();
@@ -171,7 +187,7 @@ class DashboardProvider extends ChangeNotifier {
       port: port,
       username: mqttUser,
       password: mqttPass,
-      topicPrefix: van.mqttPrefix,
+      topicPrefix: _topicRoot,
       onMessage: _onMessage,
       onConnected: _onConnected,
       onDisconnected: _onDisconnected,
@@ -285,9 +301,11 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   /// Kênh dự phòng cục bộ khi mất MQTT/Internet: nếu van này đã từng được
-  /// ghép nối qua BLE (xem BlePairScreen), thử kết nối lại bằng deviceId đã
-  /// lưu - KHÔNG cần quét lại. Đường UART CH32<->ESP32 hoạt động độc lập với
-  /// WiFi nên PING/GOTO/xem vị trí vẫn dùng được dù mất hoàn toàn Internet.
+  /// ghép nối qua BLE (xem BlePairScreen), HỎI người dùng trước (KHÔNG tự
+  /// động kết nối ngầm nữa - người dùng cần biết/đồng ý trước khi điện thoại
+  /// chuyển sang phát/nhận qua Bluetooth). Chỉ PHÁT thông báo có nút bấm qua
+  /// [bleFallbackPrompts] - việc kết nối THẬT SỰ nằm trong
+  /// confirmBleFallback(), chỉ chạy khi người dùng tự bấm xác nhận.
   Future<void> tryBleFallback() async {
     if (_disposed) return;
     if (_mqttProven) return; // MQTT da xac nhan song - khong can BLE nua
@@ -296,12 +314,42 @@ class DashboardProvider extends ChangeNotifier {
             _ble!.state == BleConnState.connecting)) {
       return;
     }
+    if (_blePromptActive) return; // da hoi roi, dang cho nguoi dung tra loi
+    if (_blePromptCooldownUntil != null &&
+        DateTime.now().isBefore(_blePromptCooldownUntil!)) {
+      return; // nguoi dung vua bo qua - khong hoi lai ngay lap tuc, tranh lam phien
+    }
     final deviceId = await prefsService.getBleDeviceId(van.mqttPrefix);
     if (_disposed) return;
     if (deviceId == null)
       return; // van nay chua tung ghep noi BLE - khong co gi de fallback
 
-    telemetry.addLog('[BLE] Mất MQTT - thử kết nối dự phòng qua Bluetooth...');
+    _blePromptActive = true;
+    telemetry.addLog(
+      '[BLE] Mất MQTT - hỏi người dùng có muốn chuyển sang Bluetooth...',
+    );
+    _bleFallbackPromptController.add(
+      'Mất Internet - kết nối van "${van.displayName}" qua Bluetooth để tiếp tục điều khiển/giám sát cục bộ?',
+    );
+  }
+
+  /// Người dùng bấm xác nhận trên thông báo từ tryBleFallback() - THỰC SỰ
+  /// thực hiện kết nối BLE (toàn bộ logic trước đây nằm ngay trong
+  /// tryBleFallback()).
+  Future<void> confirmBleFallback() async {
+    _blePromptActive = false;
+    _blePromptCooldownUntil = null;
+    if (_disposed) return;
+    if (_mqttProven) return; // MQTT da tu khoi phuc trong luc cho tra loi
+    final deviceId = await prefsService.getBleDeviceId(van.mqttPrefix);
+    if (_disposed || deviceId == null) return;
+
+    telemetry.addLog('[BLE] Người dùng đồng ý - thử kết nối dự phòng qua Bluetooth...');
+    // [NEW] Bao ngay LUC BAT DAU do/ket noi - truoc day chi bao khi THANH
+    // CONG hoac THAT BAI, nguoi dung khong biet app co dang lam gi khong
+    // trong luc cho (co the vai giay). Dung ten van (khong chi "mất Internet"
+    // chung chung) de ro rang dang tim DUNG van nao.
+    _notify('🔍 Đang tìm van "${van.displayName}" qua Bluetooth...');
     _ble ??= BleService();
 
     final connected = await _ble!.connectById(deviceId);
@@ -310,7 +358,7 @@ class DashboardProvider extends ChangeNotifier {
       telemetry.addLog(
         '[BLE] Không kết nối được (van có thể ngoài tầm sóng Bluetooth).',
       );
-      _notify('⚠️ Mất Internet và không tìm thấy van qua Bluetooth (ngoài tầm sóng hoặc đã tắt nguồn).');
+      _notify('⚠️ Không tìm thấy van qua Bluetooth (ngoài tầm sóng hoặc đã tắt nguồn).');
       return;
     }
 
@@ -326,17 +374,21 @@ class DashboardProvider extends ChangeNotifier {
     telemetry.addLog(
       '[BLE] Đã kết nối dự phòng qua Bluetooth - dùng để điều khiển/giám sát cục bộ.',
     );
-    _notify('🔵 Mất Internet - đã chuyển sang điều khiển/giám sát qua Bluetooth (cục bộ).');
+    // [FIX] Neu ro TEN VAN da ket noi duoc (khong chi "đã chuyển sang
+    // Bluetooth" chung chung) - quan trong khi nguoi dung dang mo nhieu van/
+    // dung nhieu thiet bi gan nhau, can biet CHAC dang noi chuyen voi dung
+    // van nao qua kenh du phong nay.
+    _notify('🔵 Đã kết nối Bluetooth thành công tới van "${van.displayName}" - điều khiển/giám sát cục bộ.');
     await _bleLinesSub?.cancel();
     _bleLinesSub = _ble!.lines.listen(_onBleLine);
     await _bleConnSub?.cancel();
     _bleConnSub = _ble!.connectionState.listen((s) {
       if (s == BleConnState.disconnected) {
         telemetry.addLog('[BLE] Mất kết nối Bluetooth dự phòng.');
-        // [NEW] "Làm mượt" - tự thử kết nối lại sau vài giây thay vì đứng
-        // yên chờ chu kỳ _bleRetryTimer (tới 12s) hoặc người dùng tự kéo làm
-        // mới. Ca phổ biến nhất là rớt sóng thoáng qua (đi ra xa 1 chút rồi
-        // quay lại, ESP32 khởi động lại) - vài giây là đủ để nó sẵn sàng lại.
+        // [NEW] "Làm mượt" - tự thử HỎI LẠI sau vài giây (không tự ý kết nối
+        // thẳng) thay vì đứng yên chờ chu kỳ _bleRetryTimer (tới 12s) hoặc
+        // người dùng tự kéo làm mới. Ca phổ biến nhất là rớt sóng thoáng qua
+        // (đi ra xa 1 chút rồi quay lại, ESP32 khởi động lại).
         _bleReconnectDelay?.cancel();
         _bleReconnectDelay = Timer(const Duration(seconds: 4), () {
           if (!_disposed && !_mqttProven) tryBleFallback();
@@ -348,12 +400,24 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
     // [FIX] Tai tu dong toan bo trang thai ngay khi vao che do BLE - giong
     // het luong _onConnected() cua MQTT - de nguoi dung KHONG PHAI tu bam
-    // "Tai Lai" o tung tab (Cai Dat Van, ESP32 & WiFi) moi thay du lieu. Bo
-    // qua FILES? vi ble_manager.ino khong forward lenh nay (chi MQTT).
+    // "Tai Lai" o tung tab (Cai Dat Van, ESP32 & WiFi) moi thay du lieu.
+    // FILES? gio DA dung duoc qua BLE (dispatchDeviceCommand() dung chung
+    // MQTT+BLE, xem mqtt_manager.ino) - xin luon de danh sach file nap CH32
+    // ngoai tuyen (ota_tab.dart) tu co san, khong bat nguoi dung tu bam lam moi.
     publish('PING');
     Future.delayed(const Duration(milliseconds: 300), () => publish('POS?'));
     Future.delayed(const Duration(milliseconds: 600), () => publish('SETTINGS?'));
     Future.delayed(const Duration(milliseconds: 900), () => publish('ESP_INFO?'));
+    Future.delayed(const Duration(milliseconds: 1200), () => publish('FILES?'));
+  }
+
+  /// Người dùng bấm "Bỏ qua" (hoặc để thông báo tự tắt) - không kết nối BLE
+  /// lần này, tạm ngừng hỏi lại vài phút để không làm phiền liên tục trong
+  /// lúc van thực sự đang mất mạng lâu dài.
+  void declineBleFallback() {
+    _blePromptActive = false;
+    _blePromptCooldownUntil = DateTime.now().add(const Duration(minutes: 2));
+    telemetry.addLog('[BLE] Người dùng chọn không chuyển sang Bluetooth lúc này.');
   }
 
   /// "Luoi an toan" chay ngam moi 12s (xem constructor) - tu kiem tra va thu
@@ -387,6 +451,28 @@ class DashboardProvider extends ChangeNotifier {
         );
         return false;
     }
+  }
+
+  /// [NEW] Truyen 1 file firmware (CH32 hoac ESP32) qua Bluetooth - CHI dung
+  /// duoc khi dang thuc su o che do BLE (xem ActiveTransport). Byte da duoc
+  /// UI tu tai san (qua mang rieng cua dien thoai, khong lien quan van) hoac
+  /// nguoi dung tu chon tu may - ham nay chi lo phan CHUYEN GIAO qua BLE, xem
+  /// BleService.sendFirmwareOverBle() de biet chi tiet giao thuc.
+  Future<bool> sendFirmwareOverBle({
+    required String target,
+    required List<int> bytes,
+    void Function(String rawLine)? onStatus,
+  }) async {
+    if (activeTransport != ActiveTransport.ble || _ble == null) return false;
+    telemetry.addLog('[BLE FLASH] Bắt đầu truyền firmware "$target" (${bytes.length} byte) qua Bluetooth...');
+    final ok = await _ble!.sendFirmwareOverBle(target: target, bytes: bytes, onStatus: onStatus);
+    telemetry.addLog(ok ? '[BLE FLASH] Hoàn tất.' : '[BLE FLASH] Thất bại/bị huỷ.');
+    return ok;
+  }
+
+  /// Huy 1 phien truyen firmware qua BLE dang do dang.
+  Future<void> abortBleFirmwareTransfer() async {
+    if (_ble != null) await _ble!.abortFirmwareTransfer();
   }
 
   /// Tuong duong manualRefreshMqtt() - nut "Lam Moi" tren AppBar VA keo man

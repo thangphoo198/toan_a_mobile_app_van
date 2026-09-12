@@ -59,7 +59,7 @@ class TelemetryState extends ChangeNotifier {
   int? mcuClk;
   String? mcuEe; // "ok"/khac
   String? mcuRtc; // "ok"/khac
-  String? mcuVan; // ma van vd "5023"
+  String? mcuVan; // ma van vd "S043"
   // [NEW] Chan doan boot CH32: so lan reset (dem tang dan, luu EEPROM tren
   // CH32 - song sot qua moi lan reset), nguyen nhan reset gan nhat
   // ("power"/"pin"/"software"/"iwdg"/"wwdg"/"lowpower"), va uptime (giay)
@@ -95,8 +95,13 @@ class TelemetryState extends ChangeNotifier {
 
   // Lich su f_speed gan day - dung de ve bieu do bien thien luu luong (xem
   // FlowChart trong widgets/flow_chart.dart). Gioi han so diem de khong phinh
-  // bo nho khi app mo lau - chi can du de thay xu huong gan day.
-  static const int maxFlowSamples = 60;
+  // bo nho khi app mo lau - chi can du de thay xu huong gan day. [FIX] Tang
+  // 60->120: cal_flow_sensor() ben firmware gui ##MON## moi ~1-5s khi co
+  // luu luong (xem main.c: goi khi pulse_count>5 HOAC moi 5s) - 60 mau chi
+  // giu duoc 1-5 PHUT lich su, qua ngan de thay xu huong troi qua 1 chu ky
+  // xu ly (thuong vai chuc phut). 120 mau van nhe (FlowSample chi la
+  // DateTime+double), doi lay cua so xem dai hon ro rang.
+  static const int maxFlowSamples = 120;
   final List<FlowSample> flowHistory = [];
 
   // --- ##CFG## (SETTINGS?) ---
@@ -132,6 +137,11 @@ class TelemetryState extends ChangeNotifier {
   String? wifiStaSSID;
   String? wifiStaIP;
   int? wifiStaRSSI;
+  // [NEW] Dia chi MAC (co dinh, khong doi theo trang thai ket noi) va so lan
+  // STA bi mat ket noi tinh tu luc khoi dong - phuc vu giao dien quan ly
+  // mang chi tiet hon trong esp_settings_tab.dart.
+  String? wifiStaMac;
+  int? wifiStaDisconnectCount;
 
   // --- ##WIFISCAN## ---
   List<WifiNetwork> wifiScanResults = [];
@@ -203,6 +213,8 @@ class TelemetryState extends ChangeNotifier {
     wifiApEnabled = wifiStaConnected = null;
     wifiApIP = wifiStaSavedSSID = wifiStaSSID = wifiStaIP = null;
     wifiStaRSSI = null;
+    wifiStaMac = null;
+    wifiStaDisconnectCount = null;
     wifiScanResults = [];
     wifiScanUpdatedAt = null;
     espFw = espMqttPrefix = espChip = null;

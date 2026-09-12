@@ -2,19 +2,25 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../constants.dart';
 
-/// Vong tron 5 doan (1 doan/vi tri) hien thi truc quan vi tri hien tai cua
-/// van trong 5 buoc xu ly nuoc - thay cho vong tron so don gian truoc day.
+/// Vong tron N doan (1 doan/vi tri) hien thi truc quan vi tri hien tai cua
+/// van trong cac buoc xu ly nuoc - thay cho vong tron so don gian truoc day.
+/// [FIX] So doan (N) va nhan/mau doan phai theo DUNG model - van 3 cua
+/// (F041/F043) chi co 3 buoc THAT SU (motor3.c ben firmware), ve 5 doan cho
+/// model nay se gay hieu nham co 5 buoc. Xem modeForPosition()/
+/// maxPositionsForModel() trong constants.dart.
 class PositionGauge extends StatelessWidget {
   final int? position;
   final bool isMoving;
   final double size;
+  final String? modelCode;
 
-  const PositionGauge({super.key, required this.position, required this.isMoving, this.size = 132});
+  const PositionGauge({super.key, required this.position, required this.isMoving, this.size = 132, this.modelCode});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final mode = position != null ? kWaterModes[position] : null;
+    final mode = modeForPosition(modelCode, position);
+    final totalSegments = maxPositionsForModel(modelCode);
     return SizedBox(
       width: size,
       height: size,
@@ -25,6 +31,7 @@ class PositionGauge extends StatelessWidget {
             size: Size(size, size),
             painter: _GaugePainter(
               position: position,
+              totalSegments: totalSegments,
               trackColor: theme.colorScheme.surfaceContainerHighest,
               activeColor: mode?.color ?? theme.colorScheme.primary,
             ),
@@ -62,22 +69,23 @@ class PositionGauge extends StatelessWidget {
 
 class _GaugePainter extends CustomPainter {
   final int? position;
+  final int totalSegments;
   final Color trackColor;
   final Color activeColor;
 
-  _GaugePainter({required this.position, required this.trackColor, required this.activeColor});
+  _GaugePainter({required this.position, required this.totalSegments, required this.trackColor, required this.activeColor});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = (size.shortestSide - 20) / 2;
     const gapDeg = 9.0;
-    const segDeg = 360 / 5 - gapDeg;
+    final segDeg = 360 / totalSegments - gapDeg;
     const startOffset = -90.0; // bat dau tu dinh (12 gio)
 
-    for (var i = 1; i <= 5; i++) {
+    for (var i = 1; i <= totalSegments; i++) {
       final active = position == i;
-      final startAngle = (startOffset + (i - 1) * 360 / 5 + gapDeg / 2) * math.pi / 180;
+      final startAngle = (startOffset + (i - 1) * 360 / totalSegments + gapDeg / 2) * math.pi / 180;
       final sweepAngle = segDeg * math.pi / 180;
       final rect = Rect.fromCircle(center: center, radius: radius);
 
@@ -104,5 +112,7 @@ class _GaugePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GaugePainter oldDelegate) =>
-      oldDelegate.position != position || oldDelegate.activeColor != activeColor;
+      oldDelegate.position != position ||
+      oldDelegate.activeColor != activeColor ||
+      oldDelegate.totalSegments != totalSegments;
 }

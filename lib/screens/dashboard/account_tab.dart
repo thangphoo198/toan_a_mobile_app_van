@@ -1,20 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/van.dart';
 import '../../state/auth_provider.dart';
 import '../../state/theme_provider.dart';
 import '../../widgets/common.dart';
 import '../login_screen.dart';
 
-/// [FIX] Truoc day doc "van dang mo" qua `context.watch<DashboardProvider>()`
-/// vi AccountTab la 1 trong 4 tab BEN TRONG dashboard cua 1 van cu the (luon
-/// co san DashboardProvider trong cay widget). Gio "Quan Ly Van" da la 1 tab
-/// rieng ngang hang (xem MainShell), AccountTab duoc mo nhu 1 MAN HINH PUSH
-/// TU BEN NGOAI IndexedStack - khong con nam trong pham vi Provider do nua -
-/// nen nhan truc tiep [van] (co the null neu nguoi dung chua chon van nao).
+/// Tab "Tài Khoản" - 1 trong 5 tab cua MainShell (sau "Quan Ly Van"). [FIX]
+/// Truoc day co 1 section "Van Dang Quan Ly" (ten/mqttPrefix cua van dang
+/// mo) vi luc do "doi van" chi lam duoc tu day - nay "Quan Ly Van" da la 1
+/// tab rieng luon co san o thanh dieu huong, section do thanh du thua/gay
+/// nham lan (van dang chon la trang thai CUA MAN HINH KHAC, khong phai cua
+/// tai khoan nguoi dung) nen bo hoan toan, khong con phu thuoc DashboardProvider.
 class AccountTab extends StatelessWidget {
-  final Van? van;
-  const AccountTab({super.key, this.van});
+  const AccountTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -31,43 +29,61 @@ class AccountTab extends StatelessWidget {
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: EdgeInsets.zero,
       children: [
-        // --- Banner mau chu dao + avatar (tuong tu cac app mobile chuan) ---
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.only(top: 28, bottom: 28),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [theme.colorScheme.primary, theme.colorScheme.primary.withValues(alpha: 0.85)],
+        // [FIX] Lam "chuyen nghiep" hon: bo goc duoi bo tron (thay vi cat
+        // thang, cam giac "banner web" cu) + avatar co vien trang noi bat +
+        // do bong nhe, giong pattern man hinh ho so quen thuoc cua cac app
+        // lon (Zalo, Google...).
+        ClipRRect(
+          borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(28), bottomRight: Radius.circular(28)),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(top: 36, bottom: 32),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [theme.colorScheme.primary, theme.colorScheme.primary.withValues(alpha: 0.78)],
+              ),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: theme.colorScheme.onPrimary.withValues(alpha: 0.55), width: 2),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 4))],
+                  ),
+                  child: CircleAvatar(
+                    radius: 42,
+                    backgroundColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
+                    child: Text(
+                      initial,
+                      style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  displayName,
+                  style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onPrimary, fontWeight: FontWeight.bold),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('@$username', style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85))),
+                ),
+                if (email != null && email.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(email, style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85), fontSize: 12.5)),
+                  ),
+              ],
             ),
           ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: theme.colorScheme.onPrimary.withValues(alpha: 0.2),
-                child: Text(
-                  initial,
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.colorScheme.onPrimary),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(displayName, style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onPrimary, fontWeight: FontWeight.bold)),
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('@$username', style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85))),
-              ),
-              if (email != null && email.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(email, style: TextStyle(color: theme.colorScheme.onPrimary.withValues(alpha: 0.85), fontSize: 12.5)),
-                ),
-            ],
-          ),
         ),
+        const SizedBox(height: 12),
 
         // [FIX] Gop cac dong roi (_MenuRow) vao chung SectionCard, dong nhat
         // voi ngon ngu thiet ke cua toan bo app (Giam Sat/Dieu Khien/Cai Dat
@@ -87,18 +103,6 @@ class AccountTab extends StatelessWidget {
             ),
           ],
         ),
-        // [FIX] Bo nut "Đổi Van" - "Quản Lý Van" gio la 1 tab rieng luon co
-        // san o thanh dieu huong duoi cung (xem MainShell), khong can 1 loi
-        // tat rieng tu day nua. Card nay chi con hien khi CO van dang chon.
-        if (van != null)
-          SectionCard(
-            title: 'Van Đang Quản Lý',
-            icon: Icons.water_drop_outlined,
-            children: [
-              _InfoRow(icon: Icons.label_outline, label: 'Tên hiển thị', value: van!.displayName),
-              _InfoRow(icon: Icons.settings_ethernet, label: 'MQTT Prefix', value: van!.mqttPrefix),
-            ],
-          ),
         SectionCard(
           title: 'Giao Diện',
           icon: Icons.palette_outlined,
@@ -124,7 +128,7 @@ class AccountTab extends StatelessWidget {
           ],
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           child: OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.red,

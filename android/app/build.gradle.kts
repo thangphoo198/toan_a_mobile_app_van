@@ -6,7 +6,13 @@ plugins {
 
 android {
     namespace = "com.example.van_test"
-    compileSdk = flutter.compileSdkVersion
+    // [FIX] Flutter SDK dang cai mac dinh compileSdkVersion=34, nhung
+    // file_picker (moi them de chon file .bin cuc bo khi nap qua Bluetooth)
+    // keo theo flutter_plugin_android_lifecycle doi hoi compileSdk >= 36 -
+    // build that bai voi loi "CheckAarMetadataWorkAction" neu khong nang len.
+    // Ep thang 36 (khong doi targetSdk/minSdk) - chi anh huong API nao dung
+    // duoc LUC BIEN DICH, khong doi hanh vi runtime cua app tren may that.
+    compileSdk = 36
     // Flutter mac dinh doi hoi NDK 28.2.13676358 (flutter.ndkVersion), nhung
     // sdkmanager.bat cua "Android CLI" moi bi crash khi tu tai ban do - loi
     // rieng cua toolchain. App nay khong dung code native/JNI nao, nen ep

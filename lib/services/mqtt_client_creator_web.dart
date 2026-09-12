@@ -4,8 +4,10 @@ import 'package:mqtt_client/mqtt_client.dart';
 /// Tao MqttClient cho Flutter Web - dung MqttBrowserClient (WebSocket cua
 /// trinh duyet, khong can dart:io). Chi ho tro WebSocket (dung nhu broker
 /// dang dung), khong can bat useWebSocket rieng nhu MqttServerClient.
+/// [FIX] wss:// (khong con ws:// cleartext) - xem chu thich chi tiet trong
+/// mqtt_client_creator_io.dart (ban native).
 MqttClient createMqttClient(String host, String clientId, int port) {
-  final client = MqttBrowserClient('ws://$host/mqtt', clientId);
+  final client = MqttBrowserClient('wss://$host/mqtt', clientId);
   client.port = port;
   // QUAN TRONG: mac dinh MqttBrowserClient chao nhieu WS sub-protocol
   // (protocolsMultipleDefault) - Mosquitto chi chap nhan dung 1 gia tri

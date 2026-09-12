@@ -35,6 +35,13 @@ class VanListProvider extends ChangeNotifier {
   // VanStatusChecker. Dung de hien "Đang quét" thay vi/che do tren the va
   // khoa nut NEXT nhanh, tranh gui lenh chac chan bi firmware tu choi.
   final Map<String, bool> scanningByPrefix = {};
+  // [NEW] Model THAT SU (song, tu ##MCU##/##MON##) - Van.model luu trong
+  // database app CHI la gia tri nhap 1 lan luc them van, co the LECH neu
+  // model vat ly tren thiet bi bi doi sau do (vd MODEL: lenh, hoac cai lai
+  // valve khac) ma khong ai sua lai trong app. "Quan Ly Van" phai uu tien
+  // hien gia tri SONG nay, chi dung Van.model khi van dang offline/chua co
+  // du lieu gi (xem _VanCard trong van_list_tab.dart).
+  final Map<String, String> liveModelByPrefix = {};
 
   VanListProvider({required this.api}) {
     _statusChecker.onUpdate = _onStatusUpdate;
@@ -100,6 +107,7 @@ class VanListProvider extends ChangeNotifier {
       wifiRssiByPrefix[entry.key] = entry.value.wifiRssi;
       if (entry.value.running != null) runningByPrefix[entry.key] = entry.value.running!;
       if (entry.value.scanDone != null) scanningByPrefix[entry.key] = !entry.value.scanDone!;
+      if (entry.value.model != null) liveModelByPrefix[entry.key] = entry.value.model!;
     }
     notifyListeners();
   }
@@ -122,6 +130,13 @@ class VanListProvider extends ChangeNotifier {
   /// ba gan do - khop ten quang ba BLE (chinh la mqttPrefix, xem
   /// computeDeviceTopics() ben firmware) voi tung van trong danh sach.
   Future<void> _scanBleRssi() async {
+    // [NEW] Neu dashboard cua 1 van dang giu KET NOI GATT BLE song (vd dang
+    // dieu khien/giam sat du phong qua Bluetooth vi mat MQTT) - KHONG quet o
+    // day, vi quet dong thoi voi 1 ket noi GATT dang mo tren cung 1 radio de
+    // lam gian doan/rot ket noi do tren nhieu dien thoai. Nguoi dung khong
+    // duoc phep bi ngat ket noi Bluetooth dang dung chi vi ho lo vao xem tab
+    // "Quan Ly Van" - giu nguyen trang thai cu (khong xoa bleRssiByPrefix).
+    if (BleService.anyGattConnectionActive) return;
     bleRssiByPrefix.clear();
     try {
       final sub = _bleScanner.scan(timeout: const Duration(seconds: 5)).listen((r) {
@@ -172,6 +187,50 @@ class VanListProvider extends ChangeNotifier {
       vans = vans.where((v) => v.id != id).toList();
       notifyListeners();
       unawaited(startLiveStatus());
+      return true;
+    } on ApiException catch (e) {
+      error = e.message;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Chia se 1 van (chi chu so huu goi duoc, xem app.py share_van()). Khong
+  /// can cap nhat `vans` cuc bo - danh sach chia se hien trong dialog rieng
+  /// (xem van_list_tab.dart), khong anh huong the van cua chinh minh.
+  Future<bool> shareVan(int vanId, String usernameOrPhone, {required bool canControl, required bool canConfigure}) async {
+    error = null;
+    try {
+      await api.shareVan(vanId, usernameOrPhone, canControl: canControl, canConfigure: canConfigure);
+      return true;
+    } on ApiException catch (e) {
+      error = e.message;
+      return false;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listVanShares(int vanId) => api.listVanShares(vanId);
+
+  /// Chu so huu thu hoi 1 luot chia se cho nguoi khac.
+  Future<bool> revokeShare(int vanId, int targetUserId) async {
+    error = null;
+    try {
+      await api.revokeVanShare(vanId, targetUserId);
+      return true;
+    } on ApiException catch (e) {
+      error = e.message;
+      return false;
+    }
+  }
+
+  /// Nguoi DUOC chia se tu "roi" 1 van (khong con thay trong danh sach cua
+  /// minh nua) - khac deleteVan() vi khong phai chu so huu nen goi DELETE
+  /// /vans/{id} thang se bi 404 (endpoint do chi loc theo owner_id).
+  Future<bool> leaveVan(Van van, int myUserId) async {
+    try {
+      await api.revokeVanShare(van.id, myUserId);
+      vans = vans.where((v) => v.id != van.id).toList();
+      notifyListeners();
       return true;
     } on ApiException catch (e) {
       error = e.message;

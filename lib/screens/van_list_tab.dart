@@ -233,7 +233,8 @@ class _VanCardState extends State<_VanCard> {
     final confirmed = await confirmDialog(
       context,
       title: 'Xoá van?',
-      message: 'Xoá "${v.displayName}" khỏi tài khoản của bạn?',
+      message: 'Xoá "${v.displayName}" khỏi tài khoản của bạn?'
+          '${v.isOwner ? ' Mọi người đang được bạn chia sẻ van này cũng sẽ mất quyền truy cập.' : ''}',
     );
     if (!confirmed || !context.mounted) return;
     final provider = context.read<VanListProvider>();
@@ -243,7 +244,38 @@ class _VanCardState extends State<_VanCard> {
     }
   }
 
+  /// [NEW] Nguoi DUOC chia se (khong phai chu) roi khoi 1 van - khac han
+  /// xoa (chi chu so huu xoa duoc), xem VanListProvider.leaveVan().
+  Future<void> _leaveVan(BuildContext context, Van v) async {
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Rời khỏi van?',
+      message: 'Bạn sẽ không còn thấy "${v.displayName}" trong danh sách nữa. '
+          'Chủ van (${v.ownerUsername ?? '?'}) có thể chia sẻ lại cho bạn bất cứ lúc nào.',
+    );
+    if (!confirmed || !context.mounted) return;
+    final auth = context.read<AuthProvider>();
+    final myId = auth.user?['id'] as int?;
+    if (myId == null) return;
+    final provider = context.read<VanListProvider>();
+    final ok = await provider.leaveVan(v, myId);
+    if (!ok && context.mounted) {
+      showSnack(context, provider.error ?? 'Không thực hiện được thao tác này.', isError: true);
+    }
+  }
+
+  Future<void> _openShareDialog(BuildContext context, Van v) async {
+    await showDialog(
+      context: context,
+      builder: (_) => _ShareVanDialog(van: v),
+    );
+  }
+
   Future<void> _sendNext(BuildContext context, Van v) async {
+    if (!v.canControl) {
+      showSnack(context, 'Bạn chỉ được chia sẻ quyền giám sát van này — không thể điều khiển.', isError: true);
+      return;
+    }
     setState(() => _sendingNext = true);
     HapticFeedback.lightImpact();
     final ok = await context.read<VanListProvider>().sendQuickCommand(v, 'NEXT');
@@ -267,10 +299,18 @@ class _VanCardState extends State<_VanCard> {
     final bleRssi = vanList.bleRssiByPrefix[v.mqttPrefix];
     final running = vanList.runningByPrefix[v.mqttPrefix] ?? false;
     final scanning = vanList.scanningByPrefix[v.mqttPrefix] ?? false;
+    // [FIX] Van.model (v.model) chi la gia tri NHAP 1 LAN luc them van vao
+    // app - se LECH neu model vat ly tren thiet bi bi doi sau do (vd cai lai
+    // valve khac, hoac nhap sai luc them) ma khong ai sua lai trong app. Uu
+    // tien model SONG (tu ##MCU##/##MON##, xem VanStatusChecker) - chi dung
+    // v.model khi van dang offline/chua nhan duoc gi ca.
+    final effectiveModel = vanList.liveModelByPrefix[v.mqttPrefix] ?? v.model;
     // [FIX] Vi tri VO NGHIA trong luc dang quet (xem chu thich isScanning
-    // trong monitor_tab.dart/control_tab.dart) - khong tra kWaterModes bang
-    // 1 vi tri cu/sai con sot lai tu truoc do.
-    final mode = (!scanning && pos != null) ? kWaterModes[pos] : null;
+    // trong monitor_tab.dart/control_tab.dart) - khong tra bang 1 vi tri cu/
+    // sai con sot lai tu truoc do. Dung modeForPosition() (khong phai
+    // kWaterModes truc tiep) de van 3 cua (F041/F043) hien dung nhan "Rua
+    // Xuoi" o vi tri 3 thay vi "Hoan Nguyen" sai hoan toan.
+    final mode = (!scanning && pos != null) ? modeForPosition(effectiveModel, pos) : null;
     final isOnline = status == VanOnlineStatus.online;
 
     return Card(
@@ -311,16 +351,45 @@ class _VanCardState extends State<_VanCard> {
                         // (va model neu co), Prefix la chi tiet ky thuat khong can thiet
                         // cho nguoi dung thuong.
                         Text(
-                          'Mã: ${v.code}${v.model != null ? ' • ${v.modelLabel}' : ''}',
+                          'Mã: ${v.code}${effectiveModel != null ? ' • ${Van.modelLabels[effectiveModel] ?? effectiveModel}' : ''}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
+                        // [NEW] Van duoc NGUOI KHAC chia se - ghi ro chu thuc
+                        // su + quyen dang co (giam sat luon co, dieu khien/cai
+                        // dat co the bi tat), tranh nham tuong day la van cua
+                        // chinh minh (xem [[them tinh nang chia se]]).
+                        if (!v.isOwner)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              'Được chia sẻ bởi ${v.ownerUsername ?? '?'} • '
+                              '${v.canControl ? 'Giám sát + Điều khiển' : 'Chỉ giám sát'}'
+                              '${v.canConfigure ? ' + Cài đặt' : ''}',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.blueAccent, fontWeight: FontWeight.w600),
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _deleteVan(context, v),
-                  ),
+                  // [NEW] Van cua chinh minh: nut Chia Se + Xoa. Van duoc
+                  // NGUOI KHAC chia se: chi co nut "Roi khoi van" (khong xoa
+                  // duoc van cua nguoi khac, backend cung chan o tang API).
+                  if (v.isOwner) ...[
+                    IconButton(
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      tooltip: 'Chia sẻ van',
+                      onPressed: () => _openShareDialog(context, v),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      onPressed: () => _deleteVan(context, v),
+                    ),
+                  ] else
+                    IconButton(
+                      icon: const Icon(Icons.logout_rounded, color: Colors.red),
+                      tooltip: 'Rời khỏi van',
+                      onPressed: () => _leaveVan(context, v),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -361,11 +430,11 @@ class _VanCardState extends State<_VanCard> {
                   // quet (firmware tu choi ca 2 lenh GOTO/NEXT khi chua quet
                   // xong - "ERR: chua quet", xem uart1_rx.c) - tranh bam lap
                   // gay lenh chong lenh hoac gui lenh chac chan bi tu choi.
-                  onPressed: (!isOnline || _sendingNext || running || scanning) ? null : () => _sendNext(context, v),
+                  onPressed: (!isOnline || !v.canControl || _sendingNext || running || scanning) ? null : () => _sendNext(context, v),
                   icon: (_sendingNext || running || scanning)
                       ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.skip_next_rounded, size: 18),
-                  label: Text(scanning ? 'Đang quét' : (running ? 'Đang chạy' : 'NEXT')),
+                  label: Text(!v.canControl ? 'Chỉ xem' : (scanning ? 'Đang quét' : (running ? 'Đang chạy' : 'NEXT'))),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 34),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -428,6 +497,156 @@ class _OnlineDot extends StatelessWidget {
         shape: BoxShape.circle,
         border: Border.all(color: Theme.of(context).colorScheme.surface, width: 2),
       ),
+    );
+  }
+}
+
+/// Dialog "Chia Sẻ Van" - chi mo duoc tu the cua van MA MINH LA CHU SO HUU
+/// (xem nut Icons.person_add_alt_1_outlined trong _VanCardState o tren).
+/// Hien danh sach nguoi dang duoc chia se (kem quyen, co the thu hoi tung
+/// nguoi) + form them 1 nguoi moi voi 2 quyen rieng: Dieu Khien va Cai Dat -
+/// Giam Sat luon duoc cap ngam dinh khi da chia se (khong co checkbox rieng).
+class _ShareVanDialog extends StatefulWidget {
+  final Van van;
+  const _ShareVanDialog({required this.van});
+
+  @override
+  State<_ShareVanDialog> createState() => _ShareVanDialogState();
+}
+
+class _ShareVanDialogState extends State<_ShareVanDialog> {
+  final _identifierCtrl = TextEditingController();
+  bool _canControl = true;
+  bool _canConfigure = false;
+  bool _sharing = false;
+  List<Map<String, dynamic>>? _shares;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadShares();
+  }
+
+  @override
+  void dispose() {
+    _identifierCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadShares() async {
+    try {
+      final shares = await context.read<VanListProvider>().listVanShares(widget.van.id);
+      if (mounted) setState(() => _shares = shares);
+    } catch (_) {
+      if (mounted) setState(() => _loadError = 'Không tải được danh sách chia sẻ.');
+    }
+  }
+
+  Future<void> _share() async {
+    final id = _identifierCtrl.text.trim();
+    if (id.isEmpty) {
+      showSnack(context, 'Vui lòng nhập tên đăng nhập hoặc số điện thoại.', isError: true);
+      return;
+    }
+    setState(() => _sharing = true);
+    final provider = context.read<VanListProvider>();
+    final ok = await provider.shareVan(widget.van.id, id, canControl: _canControl, canConfigure: _canConfigure);
+    if (!mounted) return;
+    setState(() => _sharing = false);
+    if (ok) {
+      _identifierCtrl.clear();
+      showSnack(context, 'Đã chia sẻ van cho "$id".');
+      _loadShares();
+    } else {
+      showSnack(context, provider.error ?? 'Không chia sẻ được.', isError: true);
+    }
+  }
+
+  Future<void> _revoke(int userId, String username) async {
+    final confirmed = await confirmDialog(context, title: 'Thu hồi chia sẻ?', message: 'Thu hồi quyền truy cập của "$username" với van này?');
+    if (!confirmed || !mounted) return;
+    final provider = context.read<VanListProvider>();
+    final ok = await provider.revokeShare(widget.van.id, userId);
+    if (!mounted) return;
+    if (ok) {
+      showSnack(context, 'Đã thu hồi.');
+      _loadShares();
+    } else {
+      showSnack(context, provider.error ?? 'Không thực hiện được.', isError: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Chia Sẻ "${widget.van.displayName}"'),
+      content: SizedBox(
+        width: 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Đang chia sẻ với', style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(height: 6),
+              if (_shares == null && _loadError == null)
+                const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Center(child: CircularProgressIndicator()))
+              else if (_loadError != null)
+                Text(_loadError!, style: const TextStyle(color: Colors.red))
+              else if (_shares!.isEmpty)
+                Text('Chưa chia sẻ cho ai.', style: Theme.of(context).textTheme.bodySmall)
+              else
+                ..._shares!.map((s) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(s['username'] as String),
+                      subtitle: Text(
+                        '${s['can_control'] == 1 ? 'Điều khiển' : 'Chỉ giám sát'}${s['can_configure'] == 1 ? ' + Cài đặt' : ''}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                        onPressed: () => _revoke(s['user_id'] as int, s['username'] as String),
+                      ),
+                    )),
+              const Divider(height: 24),
+              Text('Chia sẻ cho người mới', style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _identifierCtrl,
+                decoration: const InputDecoration(labelText: 'Tên đăng nhập hoặc số điện thoại', isDense: true),
+              ),
+              const SizedBox(height: 10),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _canControl,
+                title: const Text('Cho phép Điều khiển (mở/đóng, chuyển vị trí)'),
+                onChanged: (v) => setState(() => _canControl = v ?? true),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _canConfigure,
+                title: const Text('Cho phép Cài đặt (WiFi, hẹn giờ, cập nhật firmware...)'),
+                onChanged: (v) => setState(() => _canConfigure = v ?? false),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Đóng')),
+        FilledButton(
+          onPressed: _sharing ? null : _share,
+          child: _sharing
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Chia Sẻ'),
+        ),
+      ],
     );
   }
 }

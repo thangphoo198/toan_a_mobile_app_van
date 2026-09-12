@@ -31,6 +31,64 @@ class TelemetryParser {
       state.otaStatusText = raw;
       changed = true;
     }
+    // [NEW] [ESPOTA nn%] tien trinh ESP32 tu tai+tu nap firmware cho CHINH
+    // NO (lenh ESPOTA:<url>, xem mqtt_manager.ino) - dung CHUNG 1 bo trang
+    // thai voi CH32 (otaPercent/otaInProgress/otaStatusText) vi firmware chi
+    // cho phep 1 tien trinh nap chay tai 1 thoi diem (flashStatus.isFlashing
+    // dung chung cho ca 2), nen khong can 2 bo trang thai rieng o app.
+    if (raw.contains('[ESPOTA')) {
+      final m = RegExp(r'\[ESPOTA\s+(\d+)%\]').firstMatch(raw);
+      if (m != null) {
+        state.otaPercent = int.tryParse(m.group(1)!);
+        state.otaInProgress = true;
+      }
+      state.otaStatusText = raw;
+      changed = true;
+    }
+    // [NEW] Tien trinh TRUYEN FILE qua Bluetooth (dien thoai tu tai firmware
+    // qua mang rieng roi day sang ESP32, xem BleService.sendFirmwareOverBle()
+    // + BLEFLASH:/BLEFLASH_END trong ble_manager.ino) - dung CHUNG bo trang
+    // thai otaPercent/otaInProgress voi CH32/ESP32 OTA qua MQTT (chi la 1
+    // GIAI DOAN KHAC: "dang truyen qua Bluetooth" truoc, roi moi toi "dang
+    // ghi CH32 (IAP nn%)"/"dang ghi ESP32" sau khi BLEFLASH_END).
+    if (raw.contains('bleflash_ready')) {
+      state.otaInProgress = true;
+      state.otaPercent = 0;
+      state.otaOk = null;
+      state.otaStatusText = 'Đang truyền dữ liệu qua Bluetooth...';
+      changed = true;
+    } else if (raw.contains('bleflash_progress')) {
+      final m = RegExp(r'"pct":(\d+)').firstMatch(raw);
+      if (m != null) state.otaPercent = int.tryParse(m.group(1)!);
+      state.otaInProgress = true;
+      state.otaStatusText = 'Đang truyền qua Bluetooth: ${state.otaPercent ?? 0}%';
+      changed = true;
+    } else if (raw.contains('bleflash_err')) {
+      state.otaOk = false;
+      state.otaInProgress = false;
+      final m = RegExp(r'"message":"([^"]*)"').firstMatch(raw);
+      state.otaStatusText = m != null ? m.group(1)! : 'Lỗi truyền dữ liệu qua Bluetooth.';
+      changed = true;
+    } else if (raw.contains('bleflash_busy')) {
+      state.otaStatusText = 'Van đang bận nạp firmware khác - thử lại sau.';
+      changed = true;
+    } else if (raw.contains('bleflash_aborted')) {
+      state.otaInProgress = false;
+      state.otaStatusText = 'Đã huỷ truyền firmware qua Bluetooth.';
+      changed = true;
+    }
+
+    if (raw.contains('esp_ota_start')) {
+      state.otaInProgress = true;
+      state.otaPercent = 0;
+      state.otaOk = null;
+      state.otaStatusText = 'Đang bắt đầu tải firmware ESP32...';
+      changed = true;
+    }
+    // [FIX] "ota_ok"/"ota_err" (kiem tra bang .contains, khong phai so sanh
+    // bang) TU DONG khop luon voi "esp_ota_ok"/"esp_ota_err" (vi 2 chuoi do
+    // CHUA chuoi con "ota_ok"/"ota_err") - khong can nhanh rieng cho ket qua
+    // ESP32 OTA, y het cach CH32 da hoat dong tu truoc.
     if (raw.contains('ota_ok')) {
       state.otaOk = true;
       state.otaInProgress = false;
@@ -195,6 +253,8 @@ class TelemetryParser {
     state.wifiStaSSID = w['staSSID']?.toString();
     state.wifiStaIP = w['staIP']?.toString();
     if (w['staRSSI'] != null) state.wifiStaRSSI = (w['staRSSI'] as num).toInt();
+    if (w['staMac'] != null) state.wifiStaMac = w['staMac']?.toString();
+    if (w['staDisconnectCount'] != null) state.wifiStaDisconnectCount = (w['staDisconnectCount'] as num).toInt();
   }
 
   void _applyWifiScan(dynamic list) {
@@ -222,5 +282,7 @@ class TelemetryParser {
     if (e['staSSID'] != null) state.wifiStaSSID = e['staSSID']?.toString();
     if (e['staIP'] != null) state.wifiStaIP = e['staIP']?.toString();
     if (e['staRSSI'] != null) state.wifiStaRSSI = (e['staRSSI'] as num).toInt();
+    if (e['staMac'] != null) state.wifiStaMac = e['staMac']?.toString();
+    if (e['staDisconnectCount'] != null) state.wifiStaDisconnectCount = (e['staDisconnectCount'] as num).toInt();
   }
 }
